@@ -600,6 +600,8 @@ libtss2-mu.so.0 libtss2-esys0 #MINVER#
  Tss2_MU_TPMU_ATTEST_Unmarshal@Base 2.3.1
  Tss2_MU_TPMU_CAPABILITIES_Marshal@Base 2.3.1
  Tss2_MU_TPMU_CAPABILITIES_Unmarshal@Base 2.3.1
+ Tss2_MU_TPMU_ENCRYPTED_SECRET_Marshal@Base 2.3.3
+ Tss2_MU_TPMU_ENCRYPTED_SECRET_Unmarshal@Base 2.3.3
  Tss2_MU_TPMU_HA_Marshal@Base 2.3.1
  Tss2_MU_TPMU_HA_Unmarshal@Base 2.3.1
  Tss2_MU_TPMU_KDF_SCHEME_Marshal@Base 2.3.1
