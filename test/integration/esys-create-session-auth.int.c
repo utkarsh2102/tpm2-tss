@@ -55,6 +55,25 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     ESYS_TR loadedKeyHandle = ESYS_TR_NONE;
     ESYS_TR primaryHandle_AuthSession = ESYS_TR_NONE;
     ESYS_TR session = ESYS_TR_NONE;
+    ESYS_TR outerSession = ESYS_TR_NONE;
+
+    TPM2B_PUBLIC *outPublic = NULL;
+    TPM2B_CREATION_DATA *creationData = NULL;
+    TPM2B_DIGEST *creationHash = NULL;
+    TPMT_TK_CREATION *creationTicket = NULL;
+
+#ifdef TEST_ECC
+    TPM2B_PUBLIC *outPublicEcc = NULL;
+    TPM2B_CREATION_DATA *creationDataEcc = NULL;
+    TPM2B_DIGEST *creationHashEcc = NULL;
+    TPMT_TK_CREATION *creationTicketEcc = NULL;
+#endif
+
+    TPM2B_PUBLIC *outPublic2 = NULL;
+    TPM2B_PRIVATE *outPrivate2 = NULL;
+    TPM2B_CREATION_DATA *creationData2 = NULL;
+    TPM2B_DIGEST *creationHash2 = NULL;
+    TPMT_TK_CREATION *creationTicket2 = NULL;
 
     TPM2B_AUTH authValuePrimary = {
         .size = 5,
@@ -165,10 +184,6 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     goto_if_error(r, "Error: TR_SetAuth", error);
 
     RSRC_NODE_T *primaryHandle_node;
-    TPM2B_PUBLIC *outPublic;
-    TPM2B_CREATION_DATA *creationData;
-    TPM2B_DIGEST *creationHash;
-    TPMT_TK_CREATION *creationTicket;
 
     r = Esys_CreatePrimary(esys_context, ESYS_TR_RH_OWNER, ESYS_TR_PASSWORD,
                            ESYS_TR_NONE, ESYS_TR_NONE, &inSensitivePrimary, &inPublic,
@@ -189,11 +204,6 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
 
 
 #ifdef TEST_ECC
-    TPM2B_PUBLIC *outPublicEcc;
-    TPM2B_CREATION_DATA *creationDataEcc;
-    TPM2B_DIGEST *creationHashEcc;
-    TPMT_TK_CREATION *creationTicketEcc;
-
     r = Esys_CreatePrimary(esys_context, ESYS_TR_RH_OWNER, ESYS_TR_PASSWORD,
                            ESYS_TR_NONE, ESYS_TR_NONE, &inSensitivePrimary, &inPublicEcc,
                            &outsideInfo, &creationPCR, &primaryHandle_AuthSession,
@@ -228,15 +238,28 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     TPMI_ALG_HASH authHash = TPM2_ALG_SHA256;
 
     r = Esys_StartAuthSession(esys_context,
+                              ESYS_TR_NONE, ESYS_TR_NONE,
+                              ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
+                              NULL,
+                              TPM2_SE_HMAC, &symmetric, TPM2_ALG_SHA256,
+                              &outerSession);
+    goto_if_error(r, "Error during Esys_StartAuthSession", error);
+
+    r = Esys_TRSess_SetAttributes(esys_context, outerSession, TPMA_SESSION_AUDIT,
+                                  TPMA_SESSION_AUDIT);
+    goto_if_error(r, "Error Esys_TRSess_SetAttributes", error);
+
+    r = Esys_StartAuthSession(esys_context,
                               primaryHandle_AuthSession,
 #if TEST_BOUND_SESSION
                               primaryHandle_AuthSession,
 #else
                               ESYS_TR_NONE,
 #endif
-                              ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
+                              outerSession, ESYS_TR_NONE, ESYS_TR_NONE,
                               NULL,
                               sessionType, &symmetric, authHash, &session);
+    Esys_FlushContext(esys_context, outerSession);
     goto_if_error(r, "Error during Esys_StartAuthSession", error);
 
 #ifdef TEST_ECC
@@ -358,12 +381,6 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
         .count = 0,
     };
 
-    TPM2B_PUBLIC *outPublic2;
-    TPM2B_PRIVATE *outPrivate2;
-    TPM2B_CREATION_DATA *creationData2;
-    TPM2B_DIGEST *creationHash2;
-    TPMT_TK_CREATION *creationTicket2;
-
     r = Esys_Create(esys_context,
                     primaryHandle,
                     session, ESYS_TR_NONE, ESYS_TR_NONE,
@@ -390,6 +407,12 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     r = Esys_TR_SetAuth(esys_context, loadedKeyHandle, &authKey2);
     goto_if_error(r, "Error esys TR_SetAuth ", error);
 
+    Esys_Free(outPublic2);
+    Esys_Free(outPrivate2);
+    Esys_Free(creationData2);
+    Esys_Free(creationHash2);
+    Esys_Free(creationTicket2);
+
     r = Esys_Create(esys_context,
                     loadedKeyHandle,
                     session, ESYS_TR_NONE, ESYS_TR_NONE,
@@ -411,6 +434,23 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     r = Esys_FlushContext(esys_context, session);
     goto_if_error(r, "Flushing context", error);
 
+    Esys_Free(outPublic);
+    Esys_Free(creationData);
+    Esys_Free(creationHash);
+    Esys_Free(creationTicket);
+
+#ifdef TEST_ECC
+    Esys_Free(outPublicEcc);
+    Esys_Free(creationDataEcc);
+    Esys_Free(creationHashEcc);
+    Esys_Free(creationTicketEcc);
+#endif
+
+    Esys_Free(outPublic2);
+    Esys_Free(outPrivate2);
+    Esys_Free(creationData2);
+    Esys_Free(creationHash2);
+    Esys_Free(creationTicket2);
     return EXIT_SUCCESS;
 
  error:
@@ -441,7 +481,23 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     }
 #endif
 
+    Esys_Free(outPublic);
+    Esys_Free(creationData);
+    Esys_Free(creationHash);
+    Esys_Free(creationTicket);
 
+#ifdef TEST_ECC
+    Esys_Free(outPublicEcc);
+    Esys_Free(creationDataEcc);
+    Esys_Free(creationHashEcc);
+    Esys_Free(creationTicketEcc);
+#endif
+
+    Esys_Free(outPublic2);
+    Esys_Free(outPrivate2);
+    Esys_Free(creationData2);
+    Esys_Free(creationHash2);
+    Esys_Free(creationTicket2);
     return EXIT_FAILURE;
 }
 

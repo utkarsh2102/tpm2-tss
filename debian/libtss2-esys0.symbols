@@ -104,6 +104,7 @@ libtss2-esys.so.0 libtss2-esys0 #MINVER#
  Esys_GetSessionAuditDigest@Base 2.3.1
  Esys_GetSessionAuditDigest_Async@Base 2.3.1
  Esys_GetSessionAuditDigest_Finish@Base 2.3.1
+ Esys_GetSysContext@Base 2.4.0
  Esys_GetTcti@Base 2.3.1
  Esys_GetTestResult@Base 2.3.1
  Esys_GetTestResult_Async@Base 2.3.1
@@ -330,6 +331,7 @@ libtss2-esys.so.0 libtss2-esys0 #MINVER#
  Esys_StirRandom_Async@Base 2.3.1
  Esys_StirRandom_Finish@Base 2.3.1
  Esys_TRSess_GetAttributes@Base 2.3.1
+ Esys_TRSess_GetAuthRequired@Base 2.4.0
  Esys_TRSess_GetNonceTPM@Base 2.3.1
  Esys_TRSess_SetAttributes@Base 2.3.1
  Esys_TR_Close@Base 2.3.1
@@ -338,6 +340,7 @@ libtss2-esys.so.0 libtss2-esys0 #MINVER#
  Esys_TR_FromTPMPublic_Async@Base 2.3.1
  Esys_TR_FromTPMPublic_Finish@Base 2.3.1
  Esys_TR_GetName@Base 2.3.1
+ Esys_TR_GetTpmHandle@Base 2.4.0
  Esys_TR_Serialize@Base 2.3.1
  Esys_TR_SetAuth@Base 2.3.1
  Esys_TestParms@Base 2.3.1
@@ -355,6 +358,126 @@ libtss2-esys.so.0 libtss2-esys0 #MINVER#
  Esys_ZGen_2Phase@Base 2.3.1
  Esys_ZGen_2Phase_Async@Base 2.3.1
  Esys_ZGen_2Phase_Finish@Base 2.3.1
+libtss2-fapi.so.0 libtss2-esys0 #MINVER#
+ Fapi_AuthorizePolicy@Base 2.4.0
+ Fapi_AuthorizePolicy_Async@Base 2.4.0
+ Fapi_AuthorizePolicy_Finish@Base 2.4.0
+ Fapi_ChangeAuth@Base 2.4.0
+ Fapi_ChangeAuth_Async@Base 2.4.0
+ Fapi_ChangeAuth_Finish@Base 2.4.0
+ Fapi_CreateKey@Base 2.4.0
+ Fapi_CreateKey_Async@Base 2.4.0
+ Fapi_CreateKey_Finish@Base 2.4.0
+ Fapi_CreateNv@Base 2.4.0
+ Fapi_CreateNv_Async@Base 2.4.0
+ Fapi_CreateNv_Finish@Base 2.4.0
+ Fapi_CreateSeal@Base 2.4.0
+ Fapi_CreateSeal_Async@Base 2.4.0
+ Fapi_CreateSeal_Finish@Base 2.4.0
+ Fapi_Decrypt@Base 2.4.0
+ Fapi_Decrypt_Async@Base 2.4.0
+ Fapi_Decrypt_Finish@Base 2.4.0
+ Fapi_Delete@Base 2.4.0
+ Fapi_Delete_Async@Base 2.4.0
+ Fapi_Delete_Finish@Base 2.4.0
+ Fapi_Encrypt@Base 2.4.0
+ Fapi_Encrypt_Async@Base 2.4.0
+ Fapi_Encrypt_Finish@Base 2.4.0
+ Fapi_ExportKey@Base 2.4.0
+ Fapi_ExportKey_Async@Base 2.4.0
+ Fapi_ExportKey_Finish@Base 2.4.0
+ Fapi_ExportPolicy@Base 2.4.0
+ Fapi_ExportPolicy_Async@Base 2.4.0
+ Fapi_ExportPolicy_Finish@Base 2.4.0
+ Fapi_Finalize@Base 2.4.0
+ Fapi_Free@Base 2.4.0
+ Fapi_GetAppData@Base 2.4.0
+ Fapi_GetAppData_Async@Base 2.4.0
+ Fapi_GetAppData_Finish@Base 2.4.0
+ Fapi_GetCertificate@Base 2.4.0
+ Fapi_GetCertificate_Async@Base 2.4.0
+ Fapi_GetCertificate_Finish@Base 2.4.0
+ Fapi_GetDescription@Base 2.4.0
+ Fapi_GetDescription_Async@Base 2.4.0
+ Fapi_GetDescription_Finish@Base 2.4.0
+ Fapi_GetInfo@Base 2.4.0
+ Fapi_GetInfo_Async@Base 2.4.0
+ Fapi_GetInfo_Finish@Base 2.4.0
+ Fapi_GetPlatformCertificates@Base 2.4.0
+ Fapi_GetPlatformCertificates_Async@Base 2.4.0
+ Fapi_GetPlatformCertificates_Finish@Base 2.4.0
+ Fapi_GetPollHandles@Base 2.4.0
+ Fapi_GetRandom@Base 2.4.0
+ Fapi_GetRandom_Async@Base 2.4.0
+ Fapi_GetRandom_Finish@Base 2.4.0
+ Fapi_GetTcti@Base 2.4.0
+ Fapi_GetTpmBlobs@Base 2.4.0
+ Fapi_GetTpmBlobs_Async@Base 2.4.0
+ Fapi_GetTpmBlobs_Finish@Base 2.4.0
+ Fapi_Import@Base 2.4.0
+ Fapi_Import_Async@Base 2.4.0
+ Fapi_Import_Finish@Base 2.4.0
+ Fapi_Initialize@Base 2.4.0
+ Fapi_Initialize_Async@Base 2.4.0
+ Fapi_Initialize_Finish@Base 2.4.0
+ Fapi_List@Base 2.4.0
+ Fapi_List_Async@Base 2.4.0
+ Fapi_List_Finish@Base 2.4.0
+ Fapi_NvExtend@Base 2.4.0
+ Fapi_NvExtend_Async@Base 2.4.0
+ Fapi_NvExtend_Finish@Base 2.4.0
+ Fapi_NvIncrement@Base 2.4.0
+ Fapi_NvIncrement_Async@Base 2.4.0
+ Fapi_NvIncrement_Finish@Base 2.4.0
+ Fapi_NvRead@Base 2.4.0
+ Fapi_NvRead_Async@Base 2.4.0
+ Fapi_NvRead_Finish@Base 2.4.0
+ Fapi_NvSetBits@Base 2.4.0
+ Fapi_NvSetBits_Async@Base 2.4.0
+ Fapi_NvSetBits_Finish@Base 2.4.0
+ Fapi_NvWrite@Base 2.4.0
+ Fapi_NvWrite_Async@Base 2.4.0
+ Fapi_NvWrite_Finish@Base 2.4.0
+ Fapi_PcrExtend@Base 2.4.0
+ Fapi_PcrExtend_Async@Base 2.4.0
+ Fapi_PcrExtend_Finish@Base 2.4.0
+ Fapi_PcrRead@Base 2.4.0
+ Fapi_PcrRead_Async@Base 2.4.0
+ Fapi_PcrRead_Finish@Base 2.4.0
+ Fapi_Provision@Base 2.4.0
+ Fapi_Provision_Async@Base 2.4.0
+ Fapi_Provision_Finish@Base 2.4.0
+ Fapi_Quote@Base 2.4.0
+ Fapi_Quote_Async@Base 2.4.0
+ Fapi_Quote_Finish@Base 2.4.0
+ Fapi_SetAppData@Base 2.4.0
+ Fapi_SetAppData_Async@Base 2.4.0
+ Fapi_SetAppData_Finish@Base 2.4.0
+ Fapi_SetAuthCB@Base 2.4.0
+ Fapi_SetBranchCB@Base 2.4.0
+ Fapi_SetCertificate@Base 2.4.0
+ Fapi_SetCertificate_Async@Base 2.4.0
+ Fapi_SetCertificate_Finish@Base 2.4.0
+ Fapi_SetDescription@Base 2.4.0
+ Fapi_SetDescription_Async@Base 2.4.0
+ Fapi_SetDescription_Finish@Base 2.4.0
+ Fapi_SetPolicyActionCB@Base 2.4.0
+ Fapi_SetSignCB@Base 2.4.0
+ Fapi_Sign@Base 2.4.0
+ Fapi_Sign_Async@Base 2.4.0
+ Fapi_Sign_Finish@Base 2.4.0
+ Fapi_Unseal@Base 2.4.0
+ Fapi_Unseal_Async@Base 2.4.0
+ Fapi_Unseal_Finish@Base 2.4.0
+ Fapi_VerifyQuote@Base 2.4.0
+ Fapi_VerifyQuote_Async@Base 2.4.0
+ Fapi_VerifyQuote_Finish@Base 2.4.0
+ Fapi_VerifySignature@Base 2.4.0
+ Fapi_VerifySignature_Async@Base 2.4.0
+ Fapi_VerifySignature_Finish@Base 2.4.0
+ Fapi_WriteAuthorizeNv@Base 2.4.0
+ Fapi_WriteAuthorizeNv_Async@Base 2.4.0
+ Fapi_WriteAuthorizeNv_Finish@Base 2.4.0
 libtss2-mu.so.0 libtss2-esys0 #MINVER#
  Tss2_MU_BYTE_Marshal@Base 2.3.1
  Tss2_MU_BYTE_Unmarshal@Base 2.3.1

@@ -558,3 +558,80 @@ Esys_TRSess_GetNonceTPM(ESYS_CONTEXT * esys_context, ESYS_TR esys_handle,
     SAFE_FREE(*nonceTPM);
     return r;
 }
+
+/** Retrieves the associated TPM2_HANDLE from an ESYS_TR object.
+ *
+ * Retrieves the TPM2_HANDLE for an associated ESYS_TR object for use with the
+ * SAPI API or comparisons against raw TPM2_HANDLES from commands like
+ * TPM2_GetCapability or use of various handle bitwise comparisons. For example
+ * the mask TPM2_HR_NV_INDEX.
+ *
+ * @param esys_context [in,out] The ESYS_CONTEXT.
+ * @param esys_handle [in] The ESYS_TR object to retrieve the TPM2_HANDLE from.
+ * @param tpm_handle [out] The TPM2_HANDLE retrieved from the ESYS_TR object.
+ * @retval TSS2_RC_SUCCESS on Success.
+ * @retval TSS2_ESYS_RC_BAD_TR if the ESYS_TR object is unknown to the
+ *         ESYS_CONTEXT or is ESYS_TR_NONE.
+ * @retval TSS2_ESYS_RC_BAD_VALUE if an unknown handle < ESYS_TR_MIN_OBJECT is
+ *         passed.
+ * @retval TSS2_ESYS_RC_BAD_REFERENCE For invalid ESYS_CONTEXT.
+ */
+TSS2_RC
+Esys_TR_GetTpmHandle(ESYS_CONTEXT * esys_context, ESYS_TR esys_handle,
+                  TPM2_HANDLE * tpm_handle)
+{
+    TSS2_RC r = TSS2_RC_SUCCESS;
+    RSRC_NODE_T *esys_object;
+
+    _ESYS_ASSERT_NON_NULL(esys_context);
+    _ESYS_ASSERT_NON_NULL(tpm_handle);
+
+    if (esys_handle == ESYS_TR_NONE) {
+        return TSS2_ESYS_RC_BAD_TR;
+    }
+
+    r = esys_GetResourceObject(esys_context, esys_handle, &esys_object);
+    return_if_error(r, "Get resource object");
+
+    *tpm_handle = esys_object->rsrc.handle;
+
+    return TSS2_RC_SUCCESS;
+};
+
+/** Retrieve whether auth value is required from a Esys_TR session object.
+ *
+ * This function can be used to determin whether PoliyPassword or
+ * PlolicyAuthValue are used for a session.
+ * @param esys_context [in,out] The ESYS_CONTEXT.
+ * @param esys_handle [in,out] The ESYS_TRsess for which to retrieve the nonce.
+ * @param neeed [out] The boolean indicating whether auth value will be
+ *                    needed.
+ * @retval TSS2_RC_SUCCESS on Success.
+ * @retval TSS2_ESYS_RC_GENERAL_FAILURE for errors of the crypto library.
+ * @retval TSS2_ESYS_RC_BAD_REFERENCE if the esysContext is NULL.
+ * @retval TSS2_SYS_RC_* for SAPI errors.
+ */
+TSS2_RC
+Esys_TRSess_GetAuthRequired(ESYS_CONTEXT * esys_context, ESYS_TR esys_handle,
+                            TPMI_YES_NO *auth_needed)
+{
+    RSRC_NODE_T *esys_object;
+    TSS2_RC r;
+    _ESYS_ASSERT_NON_NULL(esys_context);
+
+    r = esys_GetResourceObject(esys_context, esys_handle, &esys_object);
+    return_if_error(r, "Object not found");
+
+    if (esys_object->rsrc.rsrcType != IESYSC_SESSION_RSRC) {
+        return_if_error(TSS2_ESYS_RC_BAD_TR,
+                        "Auth value needed for non-session object requested.");
+    }
+
+    if (esys_object->rsrc.misc.rsrc_session.type_policy_session == POLICY_AUTH ||
+        esys_object->rsrc.misc.rsrc_session.type_policy_session == POLICY_PASSWORD)
+        *auth_needed = TPM2_YES;
+    else
+        *auth_needed = TPM2_NO;
+    return TSS2_RC_SUCCESS;
+
+}

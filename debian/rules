@@ -11,7 +11,7 @@ override_dh_autoreconf:
 	dh_autoreconf ./bootstrap
 
 override_dh_auto_configure:
-	dh_auto_configure -- --enable-unit
+	dh_auto_configure -- --enable-unit --enable-doxygen-doc
 
 override_dh_autoreconf_clean:
 	rm -f compile depcomp ltmain.sh config.sub missing config.guess \

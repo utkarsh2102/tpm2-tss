@@ -56,7 +56,10 @@ The Debian wiki has an excellent description of how to post a signed release to 
 **NOTE** release candidates must be taken down after a release with the corresponding version number is available.
 
 ## Signing Release Tarballs
-Signatures must be generated using the `--detach-sign` and `--armor` options to the `gpg` command.
+Signatures must be generated using the `--detach-sign` and `--armor` options to the `gpg` command:
+```
+$ gpg --detach-sign --armor tpm2-tss-X.Y.Z.tar.gz
+```
 
 ## Verifying Signatures
 Verifying the signature on a release tarball requires the project maintainers public keys be installed in the GPG keyring of the verifier.
@@ -73,7 +76,7 @@ Additionally they must:
 * be associated with the maintainers github account (https://help.github.com/articles/adding-a-new-gpg-key-to-your-github-account/)
 
 # Announcements
-Release candidates and proper releases should be announced on the 01.org TPM2 mailing list: https://lists.01.org/mailman/listinfo/tpm2.
+Release candidates and proper releases should be announced on the 01.org TPM2 mailing list: https://lists.01.org/postorius/lists/tpm2.lists.01.org/.
 This announcement should be accompanied by a link to the release page on Github as well as a link to the CHANGELOG.md accompanying the release.
 
 # Maintainance

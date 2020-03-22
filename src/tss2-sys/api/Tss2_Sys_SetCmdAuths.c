@@ -20,7 +20,7 @@ TSS2_RC Tss2_Sys_SetCmdAuths(
     const TSS2L_SYS_AUTH_COMMAND *cmdAuthsArray)
 {
     _TSS2_SYS_CONTEXT_BLOB *ctx = syscontext_cast(sysContext);
-    uint8_t i;
+    uint16_t i;
     UINT32 authSize = 0;
     UINT32 newCmdSize = 0;
     size_t authOffset;
@@ -68,7 +68,7 @@ TSS2_RC Tss2_Sys_SetCmdAuths(
             ctx->cpBuffer, ctx->cpBufferUsedSize);
 
     /* Reset the auth size field */
-    *(UINT32 *)ctx->cpBuffer = 0;
+    memset(ctx->cpBuffer, 0, sizeof(UINT32));
 
     /* Now copy in the authorization area. */
     authOffset = ctx->cpBuffer - ctx->cmdBuffer;

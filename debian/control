@@ -4,14 +4,16 @@ Priority: optional
 Maintainer: Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>
 Uploaders: Ying-Chun Liu (PaulLiu) <paulliu@debian.org>,
            Ivan Hu <ivan.hu@ubuntu.com>,
-	   Mario Limonciello <superm1@gmail.com>
+           Mario Limonciello <superm1@gmail.com>
 Build-Depends: autoconf,
                autoconf-archive,
                debhelper (>= 11),
                docbook-xsl,
                doxygen,
                libcmocka-dev (>= 1.0),
+               libcurl4-openssl-dev | libcurl-dev,
                libgcrypt20-dev,
+               libjson-c-dev,
                libltdl-dev,
                libssl-dev,
                libtool,

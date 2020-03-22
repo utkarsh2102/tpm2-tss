@@ -71,6 +71,7 @@ typedef UINT16 TPM2_ALG_ID;
 
 #define TPM2_ALG_ERROR               ((TPM2_ALG_ID) 0x0000)
 #define TPM2_ALG_RSA                 ((TPM2_ALG_ID) 0x0001)
+#define TPM2_ALG_TDES                ((TPM2_ALG_ID) 0x0003)
 #define TPM2_ALG_SHA                 ((TPM2_ALG_ID) 0x0004)
 #define TPM2_ALG_SHA1                ((TPM2_ALG_ID) 0x0004)
 #define TPM2_ALG_HMAC                ((TPM2_ALG_ID) 0x0005)
@@ -482,8 +483,8 @@ typedef UINT32 TPM2_PT;
 #define TPM2_PT_FIRMWARE_VERSION_1       ((TPM2_PT) (TPM2_PT_FIXED + 11)) /* the most significant 32 bits of a TPM vendor-specific value indicating the version number of the firmware. See 10.12.2 and 10.12.8. */
 #define TPM2_PT_FIRMWARE_VERSION_2       ((TPM2_PT) (TPM2_PT_FIXED + 12)) /* the least significant 32 bits of a TPM vendor-specific value indicating the version number of the firmware. See 10.12.2 and 10.12.8. */
 #define TPM2_PT_INPUT_BUFFER             ((TPM2_PT) (TPM2_PT_FIXED + 13)) /* the maximum size of a parameter typically a TPM2B_MAX_BUFFER */
-#define TPM2_PT_TPM2_HR_TRANSIENT_MIN    ((TPM2_PT) (TPM2_PT_FIXED + 14)) /* the minimum number of transient objects that can be held in TPM RAM. NOTE This minimum shall be no less than the minimum value required by the platforms-pecific specification to which the TPM is built. */
-#define TPM2_PT_TPM2_HR_PERSISTENT_MIN   ((TPM2_PT) (TPM2_PT_FIXED + 15)) /* the minimum number of persistent objects that can be held in TPM NV memory. NOTE This minimum shall be no less than the minimum value required by the platform-specific specification to which the TPM is built. */
+#define TPM2_PT_HR_TRANSIENT_MIN         ((TPM2_PT) (TPM2_PT_FIXED + 14)) /* the minimum number of transient objects that can be held in TPM RAM. NOTE This minimum shall be no less than the minimum value required by the platforms-pecific specification to which the TPM is built. */
+#define TPM2_PT_HR_PERSISTENT_MIN        ((TPM2_PT) (TPM2_PT_FIXED + 15)) /* the minimum number of persistent objects that can be held in TPM NV memory. NOTE This minimum shall be no less than the minimum value required by the platform-specific specification to which the TPM is built. */
 #define TPM2_PT_HR_LOADED_MIN            ((TPM2_PT) (TPM2_PT_FIXED + 16)) /* the minimum number of authorization sessions that can be held in TPM RAM . NOTE This minimum shall be no less than the minimum value required by the platform-specific specification to which the TPM is built. */
 #define TPM2_PT_ACTIVE_SESSIONS_MAX      ((TPM2_PT) (TPM2_PT_FIXED + 17)) /* the number of authorization sessions that may be active at a time. A session is active when it has a context associated with its handle. The context may either be in TPM RAM or be context saved. NOTE This value shall be no less than the minimum value required by the platform-specific specification to which the TPM is built. */
 #define TPM2_PT_PCR_COUNT                ((TPM2_PT) (TPM2_PT_FIXED + 18)) /* the number of PCR implemented. NOTE This number is determined by the defined attributes not the number of PCR that are populated. */
@@ -513,17 +514,18 @@ typedef UINT32 TPM2_PT;
 #define TPM2_PT_VENDOR_COMMANDS          ((TPM2_PT) (TPM2_PT_FIXED + 43)) /* number of vendor commands that are implemented */
 #define TPM2_PT_NV_BUFFER_MAX            ((TPM2_PT) (TPM2_PT_FIXED + 44)) /* the maximum data size in one NV write command */
 #define TPM2_PT_MODES                    ((TPM2_PT) (TPM2_PT_FIXED + 45)) /* a TPMA_MODES value indicating that the TPM is designed for these modes. */
+#define TPM2_PT_MAX_CAP_BUFFER           ((TPM2_PT) (TPM2_PT_FIXED + 46)) /* the maximum size of a TPMS_CAPABILITY_DATA structure returned in TPM2_GetCapability(). */
 #define TPM2_PT_VAR                      ((TPM2_PT) (TPM2_PT_GROUP * 2)) /* the group of variable properties returned as TPMS_TAGGED_PROPERTY. The properties in this group change because of a Protected Capability other than a firmware update. The values are not necessarily persistent across all power transitions. */
 #define TPM2_PT_PERMANENT                ((TPM2_PT) (TPM2_PT_VAR + 0)) /* TPMA_PERMANENT */
 #define TPM2_PT_STARTUP_CLEAR            ((TPM2_PT) (TPM2_PT_VAR + 1)) /* TPMA_STARTUP_CLEAR */
-#define TPM2_PT_TPM2_HR_NV_INDEX         ((TPM2_PT) (TPM2_PT_VAR + 2)) /* the number of NV Indexes currently defined */
+#define TPM2_PT_HR_NV_INDEX              ((TPM2_PT) (TPM2_PT_VAR + 2)) /* the number of NV Indexes currently defined */
 #define TPM2_PT_HR_LOADED                ((TPM2_PT) (TPM2_PT_VAR + 3)) /* the number of authorization sessions currently loaded into TPM RAM */
 #define TPM2_PT_HR_LOADED_AVAIL          ((TPM2_PT) (TPM2_PT_VAR + 4)) /* the number of additional authorization sessions of any type that could be loaded into TPM RAM. This value is an estimate. If this value is at least 1 then at least one authorization session of any type may be loaded. Any command that changes the RAM memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one authorization session would fit into RAM. */
 #define TPM2_PT_HR_ACTIVE                ((TPM2_PT) (TPM2_PT_VAR + 5)) /* the number of active authorization sessions currently being tracked by the TPMThis is the sum of the loaded and saved sessions. */
 #define TPM2_PT_HR_ACTIVE_AVAIL          ((TPM2_PT) (TPM2_PT_VAR + 6)) /* the number of additional authorization sessions of any type that could be created. This value is an estimate. If this value is at least 1 then at least one authorization session of any type may be created. Any command that changes the RAM memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one authorization session could be created. */
-#define TPM2_PT_TPM2_HR_TRANSIENT_AVAIL  ((TPM2_PT) (TPM2_PT_VAR + 7)) /* estimate of the number of additional transient objects that could be loaded into TPM RAM. This value is an estimate. If this value is at least 1 then at least one object of any type may be loaded. Any command that changes the memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one transient object would fit into RAM. */
-#define TPM2_PT_TPM2_HR_PERSISTENT       ((TPM2_PT) (TPM2_PT_VAR + 8)) /* the number of persistent objects currently loaded into TPM NV memory */
-#define TPM2_PT_TPM2_HR_PERSISTENT_AVAIL ((TPM2_PT) (TPM2_PT_VAR + 9)) /* the number of additional persistent objects that could be loaded into NV memory. This value is an estimate. If this value is at least 1 then at least one object of any type may be made persistent. Any command that changes the NV memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one persistent object would fit into NV memory. */
+#define TPM2_PT_HR_TRANSIENT_AVAIL       ((TPM2_PT) (TPM2_PT_VAR + 7)) /* estimate of the number of additional transient objects that could be loaded into TPM RAM. This value is an estimate. If this value is at least 1 then at least one object of any type may be loaded. Any command that changes the memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one transient object would fit into RAM. */
+#define TPM2_PT_HR_PERSISTENT            ((TPM2_PT) (TPM2_PT_VAR + 8)) /* the number of persistent objects currently loaded into TPM NV memory */
+#define TPM2_PT_HR_PERSISTENT_AVAIL      ((TPM2_PT) (TPM2_PT_VAR + 9)) /* the number of additional persistent objects that could be loaded into NV memory. This value is an estimate. If this value is at least 1 then at least one object of any type may be made persistent. Any command that changes the NV memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one persistent object would fit into NV memory. */
 #define TPM2_PT_NV_COUNTERS              ((TPM2_PT) (TPM2_PT_VAR + 10)) /* the number of defined NV Indexes that have NV the TPM2_NT_COUNTER attribute */
 #define TPM2_PT_NV_COUNTERS_AVAIL        ((TPM2_PT) (TPM2_PT_VAR + 11)) /* the number of additional NV Indexes that can be defined with their TPM2_NT of TPM_NV_COUNTER and the TPMA_NV_ORDERLY attribute SET. This value is an estimate. If this value is at least 1 then at least one NV Index may be created with a TPM2_NT of TPM_NV_COUNTER and the TPMA_NV_ORDERLY attributes. Any command that changes the NV memory allocation can make this estimate invalid. NOTE A valid implementation may return 1 even if more than one NV counter could be defined. */
 #define TPM2_PT_ALGORITHM_SET            ((TPM2_PT) (TPM2_PT_VAR + 12)) /* code that limits the algorithms that may be used with the TPM */
@@ -538,7 +540,7 @@ typedef UINT32 TPM2_PT;
 
 /* Definition of UINT32 TPM2_PT_PCR Constants <INOUT S> */
 typedef UINT32 TPM2_PT_PCR;
-#define TPM2_PT_TPM2_PCR_FIRST   ((TPM2_PT_PCR) 0x00000000) /* bottom of the range of TPM2_PT_PCR properties */
+#define TPM2_PT_TPM2_PCR_FIRST        ((TPM2_PT_PCR) 0x00000000) /* bottom of the range of TPM2_PT_PCR properties */
 #define TPM2_PT_PCR_SAVE         ((TPM2_PT_PCR) 0x00000000) /* a SET bit in the TPMS_PCR_SELECT indicates that the PCR is saved and restored by TPM2_SU_STATE */
 #define TPM2_PT_PCR_EXTEND_L0    ((TPM2_PT_PCR) 0x00000001) /* a SET bit in the TPMS_PCR_SELECT indicates that the PCR may be extended from locality 0This property is only present if a locality other than 0 is implemented. */
 #define TPM2_PT_PCR_RESET_L0     ((TPM2_PT_PCR) 0x00000002) /* a SET bit in the TPMS_PCR_SELECT indicates that the PCR may be reset by TPM2_PCR_Reset from locality 0 */
@@ -560,7 +562,7 @@ typedef UINT32 TPM2_PT_PCR;
 #define TPM2_PT_PCR_DRTM_RESET   ((TPM2_PT_PCR) 0x00000012) /* a SET bit in the TPMS_PCR_SELECT indicates that the PCR is reset by a DRTM event. These PCR are reset to 1 on TPM2_Startup and reset to 0 on a _TPM_Hash_End event following a _TPM_Hash_Start event. */
 #define TPM2_PT_PCR_POLICY       ((TPM2_PT_PCR) 0x00000013) /* a SET bit in the TPMS_PCR_SELECT indicates that the PCR is controlled by policy. This property is only present if the TPM supports policy control of a PCR. */
 #define TPM2_PT_PCR_AUTH         ((TPM2_PT_PCR) 0x00000014) /* a SET bit in the TPMS_PCR_SELECT indicates that the PCR is controlled by an authorization value. This property is only present if the TPM supports authorization control of a PCR. */
-#define TPM2_PT_TPM2_PCR_LAST    ((TPM2_PT_PCR) 0x00000014) /* top of the range of TPM2_PT_PCR properties of the implementation. If the TPM receives a request for a PCR property with a value larger than this the TPM will return a zero length list and set the moreData parameter to NO. NOTE This is an implementation-specific value. The value shown reflects the reference code implementation. */
+#define TPM2_PT_TPM2_PCR_LAST         ((TPM2_PT_PCR) 0x00000014) /* top of the range of TPM2_PT_PCR properties of the implementation. If the TPM receives a request for a PCR property with a value larger than this the TPM will return a zero length list and set the moreData parameter to NO. NOTE This is an implementation-specific value. The value shown reflects the reference code implementation. */
 /* NOTE: The following values are reserved:
  * 0x00000015 is reserved for the next 2nd TPM2_PT_PCR_POLICY set.
  * 0x00000016 is reserved for the next 2nd TPM2_PT_PCR_AUTH set.
@@ -1208,14 +1210,14 @@ typedef TPM2_KEY_BITS TPMI_AES_KEY_BITS;
 /* Definition of  SM4 TPM2_KEY_BITS TPMI_SM4_KEY_BITS   Type */
 typedef TPM2_KEY_BITS TPMI_SM4_KEY_BITS;
 
-/* Definition of  CAMELLIA TPM2_KEY_BITS TPMI_TPM2_CAMELLIA_KEY_BITS   Type */
-typedef TPM2_KEY_BITS TPMI_TPM2_CAMELLIA_KEY_BITS;
+/* Definition of  CAMELLIA TPM2_KEY_BITS TPMI_CAMELLIA_KEY_BITS   Type */
+typedef TPM2_KEY_BITS TPMI_CAMELLIA_KEY_BITS;
 
 /* Definition of TPMU_SYM_KEY_BITS Union */
 typedef union {
     TPMI_AES_KEY_BITS aes;                /* all symmetric algorithms */
     TPMI_SM4_KEY_BITS sm4;                /* all symmetric algorithms */
-    TPMI_TPM2_CAMELLIA_KEY_BITS camellia; /* all symmetric algorithms */
+    TPMI_CAMELLIA_KEY_BITS camellia;      /* all symmetric algorithms */
     TPM2_KEY_BITS sym;                    /* when selector may be any of the symmetric block ciphers */
     TPMI_ALG_HASH exclusiveOr;            /* overload for using xor. NOTE TPM2_ALG_NULL is not allowed */
 } TPMU_SYM_KEY_BITS;

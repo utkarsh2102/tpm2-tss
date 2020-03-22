@@ -8,6 +8,7 @@
 #include <config.h>
 #endif
 
+#include <stdbool.h>
 #include <stdlib.h>
 
 #include "tss2_esys.h"
@@ -19,6 +20,35 @@
 #include "util/log.h"
 #include "util/aux_util.h"
 
+static bool check_name(ESYS_CONTEXT * esys_context, ESYS_TR object_handle)
+{
+    bool result = false;
+
+    TPM2B_NAME *read_name = NULL;
+    TPM2B_NAME *get_name = NULL;
+
+    TSS2_RC r = Esys_ReadPublic(esys_context, object_handle,
+                                ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
+                                NULL, &read_name, NULL);
+    goto_if_error(r, "Error esys readpublic", out);
+
+    r = Esys_TR_GetName(esys_context, object_handle, &get_name);
+    goto_if_error(r, "Error esys getname", out);
+
+    if (read_name->size != get_name->size) {
+        LOG_ERROR("name size mismatch %u != %u",
+                  read_name->size, get_name->size);
+        goto out;
+    }
+
+    result = memcmp(read_name->name, get_name->name, get_name->size) == 0;
+
+out:
+    Esys_Free(read_name);
+    Esys_Free(get_name);
+
+    return result;
+}
 /** This test is intended to test the ESAPI command CreateLoaded.
  *
  * We start by creating a primary key (Esys_CreatePrimary).
@@ -29,6 +59,8 @@
  *  - Esys_CreatePrimary() (M)
  *  - Esys_FlushContext() (M)
  *  - Esys_StartAuthSession() (M)
+ *  - Esys_TR_GetName() (M)
+ *  - Esys_TR_ReadPublic() (M)
  *
  * Used compiler defines: TEST_SESSION
  *
@@ -46,6 +78,13 @@ test_esys_createloaded(ESYS_CONTEXT * esys_context)
     ESYS_TR primaryHandle = ESYS_TR_NONE;
     ESYS_TR objectHandle = ESYS_TR_NONE;
     int failure_return = EXIT_FAILURE;
+
+    TPM2B_PUBLIC *outPublic = NULL;
+    TPM2B_CREATION_DATA *creationData = NULL;
+    TPM2B_DIGEST *creationHash = NULL;
+    TPMT_TK_CREATION *creationTicket = NULL;
+    TPM2B_PRIVATE *outPrivate2 = NULL;
+    TPM2B_PUBLIC *outPublic2 = NULL;
 
 #ifdef TEST_SESSION
     ESYS_TR session = ESYS_TR_NONE;
@@ -136,11 +175,6 @@ test_esys_createloaded(ESYS_CONTEXT * esys_context)
     r = Esys_TR_SetAuth(esys_context, ESYS_TR_RH_OWNER, &authValue);
     goto_if_error(r, "Error: TR_SetAuth", error);
 
-    TPM2B_PUBLIC *outPublic;
-    TPM2B_CREATION_DATA *creationData;
-    TPM2B_DIGEST *creationHash;
-    TPMT_TK_CREATION *creationTicket;
-
     r = Esys_CreatePrimary(esys_context, ESYS_TR_RH_OWNER, ESYS_TR_PASSWORD,
                            ESYS_TR_NONE, ESYS_TR_NONE, &inSensitivePrimary, &inPublic,
                            &outsideInfo, &creationPCR, &primaryHandle,
@@ -168,8 +202,6 @@ test_esys_createloaded(ESYS_CONTEXT * esys_context)
     };
 
     TPM2B_TEMPLATE inPublic_template = {0};
-    TPM2B_PRIVATE *outPrivate2;
-    TPM2B_PUBLIC *outPublic2;
     TPMT_PUBLIC  inPublic2 = {
         .type = TPM2_ALG_ECC,
         .nameAlg = TPM2_ALG_SHA256,
@@ -239,6 +271,11 @@ test_esys_createloaded(ESYS_CONTEXT * esys_context)
 
     goto_if_error(r, "Error During CreateLoaded", error);
 
+    bool names_match = check_name(esys_context, objectHandle);
+    if (!names_match) {
+        goto error;
+    }
+
     r = Esys_FlushContext(esys_context, primaryHandle);
     goto_if_error(r, "Flushing context", error);
 
@@ -254,6 +291,12 @@ test_esys_createloaded(ESYS_CONTEXT * esys_context)
     goto_if_error(r, "Error: FlushContext", error);
 #endif
 
+    SAFE_FREE(outPublic);
+    SAFE_FREE(creationData);
+    SAFE_FREE(creationHash);
+    SAFE_FREE(creationTicket);
+    SAFE_FREE(outPrivate2);
+    SAFE_FREE(outPublic2);
     return EXIT_SUCCESS;
 
  error:
@@ -278,6 +321,12 @@ test_esys_createloaded(ESYS_CONTEXT * esys_context)
         }
     }
 
+    SAFE_FREE(outPublic);
+    SAFE_FREE(creationData);
+    SAFE_FREE(creationHash);
+    SAFE_FREE(creationTicket);
+    SAFE_FREE(outPrivate2);
+    SAFE_FREE(outPublic2);
     return failure_return;
 }
 

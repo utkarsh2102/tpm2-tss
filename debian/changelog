@@ -1,3 +1,10 @@
+tpm2-tss (2.4.0-1) unstable; urgency=low
+
+  [ Ying-Chun Liu (PaulLiu) <paulliu@debian.org> ]
+  * New upstream release
+
+ -- Ying-Chun Liu (PaulLiu) <paulliu@debian.org>  Sun, 22 Mar 2020 23:59:21 +0800
+
 tpm2-tss (2.3.3-1) unstable; urgency=low
 
   [ Ying-Chun Liu (PaulLiu) <paulliu@debian.org> ]
