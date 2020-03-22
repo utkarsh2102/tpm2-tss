@@ -8,8 +8,9 @@
 ### Initialize global variables used throughout the file ###
 INCLUDE_DIRS    = -I$(srcdir)/src -I$(srcdir)/include/tss2
 ACLOCAL_AMFLAGS = -I m4 --install
-AM_CFLAGS       = $(INCLUDE_DIRS) $(EXTRA_CFLAGS) $(CODE_COVERAGE_CFLAGS)
-AM_LDFLAGS      = $(EXTRA_LDFLAGS) $(CODE_COVERAGE_LIBS)
+AM_CFLAGS       = $(INCLUDE_DIRS) $(EXTRA_CFLAGS) $(CODE_COVERAGE_CFLAGS) \
+				  $(SANITIZER_CFLAGS)
+AM_LDFLAGS      = $(EXTRA_LDFLAGS) $(CODE_COVERAGE_LIBS) $(SANITIZER_LDFLAGS)
 
 # Initialize empty variables to be extended throughout
 lib_LTLIBRARIES =
@@ -23,7 +24,7 @@ MAINTAINERCLEANFILES = \
     $(DIST_ARCHIVES) \
     AUTHORS
 
-GITIGNOREFILES = \
+TSS_GITIGNOREFILES = \
     $(GITIGNORE_MAINTAINERCLEANFILES_TOPLEVEL) \
     $(GITIGNORE_MAINTAINERCLEANFILES_MAKEFILE_IN) \
     $(GITIGNORE_MAINTAINERCLEANFILES_M4_LIBTOOL) \
@@ -48,6 +49,7 @@ GITIGNOREFILES = \
     m4/ax_valgrind_check.m4 \
     m4/pkg.m4
 
+GITIGNOREFILES = ""
 ### Add ax_* rules ###
 # ax_code_coverage
 if AUTOCONF_CODE_COVERAGE_2019_01_06
@@ -57,7 +59,8 @@ distclean-local: code-coverage-dist-clean
 else
 @CODE_COVERAGE_RULES@
 endif
-CODE_COVERAGE_DIRECTORY = $(top_builddir)/src
+GITIGNOREFILES += $(TSS_GITIGNOREFILES)
+CODE_COVERAGE_DIRECTORY = $(top_builddir)/src $(top_builddir)/test
 
 # ax_valgrind_check
 @VALGRIND_CHECK_RULES@
@@ -381,6 +384,146 @@ src_tss2_rc_libtss2_rc_la_LDFLAGS = -Wl,--version-script=$(srcdir)/lib/tss2-rc.m
 endif # HAVE_LD_VERSION_SCRIPT
 src_tss2_rc_libtss2_rc_la_SOURCES = $(TSS2_RC_SRC)
 
+
+### TCG TSS FAPI spec library ###
+if FAPI
+fapiconfdir = @sysconfdir@/tpm2-tss
+fapiconf_DATA = fapi-config.json
+
+EXTRA_DIST += dist/fapi-config.json.in
+CLEANFILES += fapi-config.json
+
+# We have to do this ourselves, in order to get absolute paths
+fapi-config.json: dist/fapi-config.json.in
+	$(AM_V_GEN) $(SED) \
+		-e 's|[@]prefix@|$(prefix)|g' \
+		-e 's|[@]datarootdir@|$(datarootdir)|g' \
+		-e 's|[@]datadir@|$(datadir)|g' \
+		-e 's|[@]sysconfdir@|$(sysconfdir)|g' \
+		-e 's|[@]sharedstatedir@|$(sharedstatedir)|g' \
+		-e 's|[@]localstatedir@|$(localstatedir)|g' \
+		-e 's|[@]runstatedir@|$(runstatedir)|g' \
+		-e 's|[@]userstatedir@|$(userstatedir)|g' \
+		< "$<" > "$@"
+
+sysusers_DATA = dist/sysusers.d/tpm2-tss.conf
+tmpfiles_DATA = tpm2-tss-fapi.conf
+
+EXTRA_DIST += dist/sysusers.d/tpm2-tss.conf dist/tmpfiles.d/tpm2-tss-fapi.conf.in
+CLEANFILES += tpm2-tss-fapi.conf
+
+# We have to do this ourselves, in order to get absolute paths
+tpm2-tss-fapi.conf: dist/tmpfiles.d/tpm2-tss-fapi.conf.in
+	$(AM_V_GEN) $(SED) \
+		-e 's|[@]localstatedir@|$(localstatedir)|g' \
+		-e 's|[@]runstatedir@|$(runstatedir)|g' \
+		< "$<" > "$@"
+
+EXTRA_DIST += dist/fapi-profiles/P_RSA2048SHA256.json \
+              dist/fapi-profiles/P_ECCP256SHA256.json
+
+fapiprofilesdir = @sysconfdir@/tpm2-tss/fapi-profiles
+fapiprofiles_DATA = dist/fapi-profiles/P_RSA2048SHA256.json \
+                    dist/fapi-profiles/P_ECCP256SHA256.json
+
+libtss2_fapi = src/tss2-fapi/libtss2-fapi.la
+tss2_HEADERS += $(srcdir)/include/tss2/tss2_fapi.h
+lib_LTLIBRARIES += $(libtss2_fapi)
+pkgconfig_DATA += lib/tss2-fapi.pc
+EXTRA_DIST +=  \
+    lib/tss2-fapi.map \
+    lib/tss2-fapi.def \
+    test/data/fapi/P_RSA_EK_persistent.json \
+    test/data/fapi/P_RSA.json \
+    test/data/fapi/P_RSA_sh_policy.json \
+    test/data/fapi/P_RSA256.json \
+    test/data/fapi/P_ECC.json \
+    test/data/fapi/policy/pol_pcr16_0.json \
+    test/data/fapi/policy/pol_pcr16_0_fail.json \
+    test/data/fapi/policy/pol_pcr16_0_or.json \
+    test/data/fapi/policy/pol_nv.json \
+    test/data/fapi/policy/pol_nv_written.json \
+    test/data/fapi/policy/pol_signed.json \
+    test/data/fapi/policy/pol_signed_ecc.json \
+    test/data/fapi/policy/pol_authorize.json \
+    test/data/fapi/policy/pol_authorize_outer.json \
+    test/data/fapi/policy/pol_authorize_nv.json \
+    test/data/fapi/policy/pol_secret.json \
+    test/data/fapi/policy/pol_password.json \
+    test/data/fapi/policy/pol_auth_value.json \
+    test/data/fapi/policy/pol_command_code.json \
+    test/data/fapi/policy/pol_locality.json \
+    test/data/fapi/policy/pol_physical_presence.json \
+    test/data/fapi/policy/pol_duplicate.json \
+    test/data/fapi/policy/pol_nv_change_auth.json \
+    test/data/fapi/policy/pol_countertimer.json \
+    test/data/fapi/policy/pol_name_hash.json \
+    test/data/fapi/policy/pol_pcr16_read.json \
+    test/data/fapi/policy/pol_action.json \
+    test/data/fapi/policy/pol_cphash.json
+
+src_tss2_fapi_libtss2_fapi_la_LIBADD  = $(libtss2_sys) $(libtss2_mu) $(libtss2_esys) \
+    $(libutil) $(libtss2_tctildr)
+
+src_tss2_fapi_libtss2_fapi_la_SOURCES = $(TSS2_FAPI_SRC)
+src_tss2_fapi_libtss2_fapi_la_CFLAGS  = $(AM_CFLAGS) -I$(srcdir)/src/tss2-fapi
+src_tss2_fapi_libtss2_fapi_la_LDFLAGS = $(AM_LDFLAGS) $(LIBCRYPTO_LIBS) $(JSON_C_LIBS) $(CURL_LIBS)
+if HAVE_LD_VERSION_SCRIPT
+src_tss2_fapi_libtss2_fapi_la_LDFLAGS += -Wl,--version-script=$(srcdir)/lib/tss2-fapi.map
+endif # HAVE_LD_VERSION_SCRIPT
+
+
+if DOXYMAN
+DOXYMAN3 += \
+    doxygen-doc/man/Fapi_AuthorizePolicy.3 \
+    doxygen-doc/man/Fapi_ChangeAuth.3 \
+    doxygen-doc/man/Fapi_CreateKey.3 \
+    doxygen-doc/man/Fapi_CreateNv.3 \
+    doxygen-doc/man/Fapi_CreateSeal.3 \
+    doxygen-doc/man/Fapi_Decrypt.3 \
+    doxygen-doc/man/Fapi_Delete.3 \
+    doxygen-doc/man/Fapi_Encrypt.3 \
+    doxygen-doc/man/Fapi_ExportKey.3 \
+    doxygen-doc/man/Fapi_ExportPolicy.3 \
+    doxygen-doc/man/Fapi_Finalize.3 \
+    doxygen-doc/man/Fapi_Free.3 \
+    doxygen-doc/man/Fapi_GetAppData.3 \
+    doxygen-doc/man/Fapi_GetCertificate.3 \
+    doxygen-doc/man/Fapi_GetDescription.3 \
+    doxygen-doc/man/Fapi_GetInfo.3 \
+    doxygen-doc/man/Fapi_GetPlatformCertificates.3 \
+    doxygen-doc/man/Fapi_GetPollHandles.3 \
+    doxygen-doc/man/Fapi_GetRandom.3 \
+    doxygen-doc/man/Fapi_GetTcti.3 \
+    doxygen-doc/man/Fapi_GetTpmBlobs.3 \
+    doxygen-doc/man/Fapi_Import.3 \
+    doxygen-doc/man/Fapi_Initialize.3 \
+    doxygen-doc/man/Fapi_List.3 \
+    doxygen-doc/man/Fapi_NvExtend.3 \
+    doxygen-doc/man/Fapi_NvIncrement.3 \
+    doxygen-doc/man/Fapi_NvRead.3 \
+    doxygen-doc/man/Fapi_NvSetBits.3 \
+    doxygen-doc/man/Fapi_NvWrite.3 \
+    doxygen-doc/man/Fapi_PcrExtend.3 \
+    doxygen-doc/man/Fapi_PcrRead.3 \
+    doxygen-doc/man/Fapi_Provision.3 \
+    doxygen-doc/man/Fapi_Quote.3 \
+    doxygen-doc/man/Fapi_SetAppData.3 \
+    doxygen-doc/man/Fapi_SetAuthCB.3 \
+    doxygen-doc/man/Fapi_SetBranchCB.3 \
+    doxygen-doc/man/Fapi_SetCertificate.3 \
+    doxygen-doc/man/Fapi_SetDescription.3 \
+    doxygen-doc/man/Fapi_SetSignCB.3 \
+    doxygen-doc/man/Fapi_Sign.3 \
+    doxygen-doc/man/FapiTestgroup.3 \
+    doxygen-doc/man/Fapi_Unseal.3 \
+    doxygen-doc/man/Fapi_VerifyQuote.3 \
+    doxygen-doc/man/Fapi_VerifySignature.3 \
+    doxygen-doc/man/Fapi_WriteAuthorizeNv.3
+endif #DOXYMAN
+
+endif #FAPI
+
 ### Man Pages
 man3_MANS = \
     man/man3/Tss2_Tcti_Device_Init.3 \
@@ -415,14 +558,11 @@ uninstall-local:
 	-rm $(DESTDIR)$(udevrulesdir)/$(udevrulesprefix)tpm-udev.rules
 endif
 
+# Create tss user and FAPI directories directly after installation (vs. after a reboot)
 install-exec-hook:
-	cd $(DESTDIR)$(libdir) && \
-		$(LN_S) -f libtss2-tcti-device.so libtss2-tcti-default.so
+	systemd-sysusers && systemd-tmpfiles --create || true
 
 uninstall-hook:
-	cd $(DESTDIR)$(libdir) && \
-		[ -L libtss2-tcti-default.so ] && \
-			rm -f libtss2-tcti-default.so || true
 	cd $(DESTDIR)$(man3dir) && \
 		[ -L Tss2_TctiLdr_Initialize_Ex.3 ] && \
 			rm -f Tss2_TctiLdr_Initialize_Ex.3 || true

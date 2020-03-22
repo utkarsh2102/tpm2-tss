@@ -15,8 +15,25 @@
 #include <linux/limits.h>
 #elif defined(_MSC_VER)
 #include <windows.h>
+#include <limits.h>
 #ifndef PATH_MAX
 #define PATH_MAX MAX_PATH
+
+static char *strndup(const char* s, size_t n)
+{
+    char *dst = NULL;
+
+    if (n + 1 >= USHRT_MAX)
+        return NULL;
+
+    dst = calloc(1, n + 1);
+
+    if (dst == NULL)
+        return NULL;
+
+    memcpy(dst, s, n);
+    return dst;
+}
 #endif
 #else
 #include <limits.h>
@@ -117,7 +134,6 @@ tctildr_conf_parse (const char *name_conf,
     char *split;
     size_t combined_length;
 
-    LOG_DEBUG ("name_conf: \"%s\"", name_conf);
     if (name_conf == NULL) {
         LOG_ERROR ("'name_conf' param may NOT be NULL");
         return TSS2_TCTI_RC_BAD_REFERENCE;
@@ -127,6 +143,8 @@ tctildr_conf_parse (const char *name_conf,
         LOG_ERROR ("combined conf length must be between 0 and PATH_MAX");
         return TSS2_TCTI_RC_BAD_VALUE;
     }
+
+    LOG_DEBUG ("name_conf: \"%s\"", name_conf);
     if (combined_length == 0)
         return TSS2_RC_SUCCESS;
     split = strchr (name_conf, ':');
@@ -268,26 +286,6 @@ Tss2_TctiLdr_Finalize (TSS2_TCTI_CONTEXT **tctiContext)
     *tctiContext = NULL;
 }
 
-#if !defined(HAVE_STRNDUP)
-char*
-strndup (const char* s,
-         size_t n)
-{
-    char* dst = NULL;
-
-    if (n + 1 < n) {
-        return NULL;
-    }
-    dst = calloc(1, n + 1);
-    if (dst == NULL) {
-        return NULL;
-    }
-    memcpy(dst, s, n);
-
-    return dst;
-}
-#endif /* HAVE_STRNDUP */
-
 TSS2_RC
 copy_info (const TSS2_TCTI_INFO *info_src,
            TSS2_TCTI_INFO *info_dst)
@@ -367,7 +365,7 @@ Tss2_TctiLdr_GetInfo (const char *name,
     info_tmp->init = NULL;
 out:
     tctildr_finalize_data (&data);
-    *info = info_tmp ? info_tmp : NULL;
+    *info = info_tmp;
     return rc;
 }
 
@@ -420,6 +418,7 @@ Tss2_TctiLdr_Initialize_Ex (const char *name,
     }
     ldr_ctx = calloc (1, sizeof (TSS2_TCTILDR_CONTEXT));
     if (ldr_ctx == NULL) {
+        rc = TSS2_TCTI_RC_MEMORY;
         goto err;
     }
     TSS2_TCTI_MAGIC (ldr_ctx) = TCTILDR_MAGIC;

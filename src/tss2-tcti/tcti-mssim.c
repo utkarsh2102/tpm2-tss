@@ -304,6 +304,10 @@ tcti_mssim_receive (
     unsigned char *response_buffer,
     int32_t timeout)
 {
+#ifdef TEST_FAPI_ASYNC
+    /* Used for simulating a timeout. */
+    static int wait = 0;
+#endif
     TSS2_TCTI_MSSIM_CONTEXT *tcti_mssim = tcti_mssim_context_cast (tctiContext);
     TSS2_TCTI_COMMON_CONTEXT *tcti_common = tcti_mssim_down_cast (tcti_mssim);
     TSS2_RC rc;
@@ -319,9 +323,17 @@ tcti_mssim_receive (
     }
 
     if (timeout != TSS2_TCTI_TIMEOUT_BLOCK) {
-        LOG_WARNING ("Asynchronous I/O not implemented. The 'timeout' "
-                     "parameter must be TSS2_TCTI_TIMEOUT_BLOCK.");
-        return TSS2_TCTI_RC_BAD_VALUE;
+        LOG_TRACE("Asynchronous I/O not actually implemented.");
+#ifdef TEST_FAPI_ASYNC
+        if (wait < 1) {
+            LOG_TRACE("Simulating Async by requesting another invocation.");
+            wait += 1;
+            return TSS2_TCTI_RC_TRY_AGAIN;
+        } else {
+            LOG_TRACE("Sending the actual result.");
+            wait = 0;
+        }
+#endif /* TEST_FAPI_ASYNC */
     }
 
     if (tcti_common->header.size == 0) {
@@ -346,8 +358,8 @@ tcti_mssim_receive (
         LOG_DEBUG ("response size: %" PRIu32, tcti_common->header.size);
     }
 
-    *response_size = tcti_common->header.size;
     if (response_buffer == NULL) {
+        *response_size = tcti_common->header.size;
         return TSS2_RC_SUCCESS;
     }
 
@@ -355,6 +367,7 @@ tcti_mssim_receive (
         *response_size = tcti_common->header.size;
         return TSS2_TCTI_RC_INSUFFICIENT_BUFFER;
     }
+    *response_size = tcti_common->header.size;
 
     /* Receive the TPM response. */
     LOG_DEBUG ("Reading response of size %" PRIu32, tcti_common->header.size);

@@ -112,6 +112,7 @@ EXPORTS
     Esys_GetTime
     Esys_GetTime_Async
     Esys_GetTime_Finish
+    Esys_GetSysContext
     Esys_HMAC
     Esys_HMAC_Async
     Esys_HMAC_Finish
@@ -331,6 +332,7 @@ EXPORTS
     Esys_StirRandom_Async
     Esys_StirRandom_Finish
     Esys_TRSess_GetAttributes
+    Esys_TRSess_GetAuthRequired
     Esys_TRSess_GetNonceTPM
     Esys_TRSess_SetAttributes
     Esys_TR_Close
@@ -341,6 +343,7 @@ EXPORTS
     Esys_TR_GetName
     Esys_TR_Serialize
     Esys_TR_SetAuth
+    Esys_TR_GetTpmHandle;
     Esys_TestParms
     Esys_TestParms_Async
     Esys_TestParms_Finish

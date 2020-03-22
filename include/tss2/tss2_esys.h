@@ -167,6 +167,18 @@ Esys_TRSess_GetNonceTPM(
     ESYS_TR session,
     TPM2B_NONCE **nonceTPM);
 
+TSS2_RC
+Esys_TR_GetTpmHandle(
+    ESYS_CONTEXT *esys_context,
+    ESYS_TR esys_handle,
+    TPM2_HANDLE *tpm_handle);
+
+TSS2_RC
+Esys_TRSess_GetAuthRequired(
+    ESYS_CONTEXT *esys_context,
+    ESYS_TR esys_handle,
+    TPMI_YES_NO *auth_needed);
+
 /* Table 5 - TPM2_Startup Command */
 
 TSS2_RC
@@ -3227,6 +3239,11 @@ Esys_Vendor_TCG_Test_Finish(
 void
 Esys_Free(
     void *__ptr);
+
+TSS2_RC
+Esys_GetSysContext(
+    ESYS_CONTEXT *esys_context,
+    TSS2_SYS_CONTEXT **sys_context);
 
 #ifdef __cplusplus
 }
