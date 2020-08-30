@@ -89,13 +89,16 @@ static TSS2_RC
 ifapi_hex_to_byte_ary(const char hex[], UINT32 vlen, BYTE val[])
 {
     UINT32 j;
+    UINT32 hexlen;
 
-    if (vlen < strlen(hex) / 2) {
+    hexlen = strlen(hex);
+
+    if (vlen < hexlen / 2) {
         LOG_ERROR("Hex string too long. (%zu > %"PRIu32")", strlen(hex) / 2, vlen);
         return TSS2_FAPI_RC_BAD_VALUE;
     }
     for (j = 0; j < vlen
-            && 2 * j < strlen(hex); j++) { //convert hex-Argv to byte array
+            && 2 * j < hexlen; j++) { //convert hex-Argv to byte array
         if (!isxdigit(hex[2 * j]) || (!(hex[2 * j + 1] == 0)
                                       && !isxdigit(hex[2 * j + 1]))) {
             LOG_ERROR("Error in value (%i)", j);
@@ -1609,50 +1612,6 @@ ifapi_json_TPMT_TK_CREATION_deserialize(json_object *jso,
     return_if_error(r, "BAD VALUE");
     if (out != NULL && out->tag != TPM2_ST_CREATION) {
         LOG_ERROR("BAD VALUE %zu != %zu", (size_t)out->tag, (size_t)TPM2_ST_CREATION);
-    }
-
-    if (!ifapi_get_sub_object(jso, "hierarchy", &jso2)) {
-        LOG_ERROR("Bad value");
-        return TSS2_FAPI_RC_BAD_VALUE;
-    }
-    r = ifapi_json_TPMI_RH_HIERARCHY_deserialize(jso2, &out->hierarchy);
-    return_if_error(r, "BAD VALUE");
-
-    if (!ifapi_get_sub_object(jso, "digest", &jso2)) {
-        LOG_ERROR("Bad value");
-        return TSS2_FAPI_RC_BAD_VALUE;
-    }
-    r = ifapi_json_TPM2B_DIGEST_deserialize(jso2, &out->digest);
-    return_if_error(r, "BAD VALUE");
-    LOG_TRACE("true");
-    return TSS2_RC_SUCCESS;
-}
-
-/** Deserialize a TPMT_TK_VERIFIED json object.
- *
- * @param[in]  jso the json object to be deserialized.
- * @param[out] out the deserialzed binary object.
- * @retval TSS2_RC_SUCCESS if the function call was a success.
- * @retval TSS2_FAPI_RC_BAD_VALUE if the json object can't be deserialized.
- * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
- */
-TSS2_RC
-ifapi_json_TPMT_TK_VERIFIED_deserialize(json_object *jso,
-                                        TPMT_TK_VERIFIED *out)
-{
-    json_object *jso2;
-    TSS2_RC r;
-    LOG_TRACE("call");
-    return_if_null(out, "Bad reference.", TSS2_FAPI_RC_BAD_REFERENCE);
-
-    if (!ifapi_get_sub_object(jso, "tag", &jso2)) {
-        LOG_ERROR("Bad value");
-        return TSS2_FAPI_RC_BAD_VALUE;
-    }
-    r = ifapi_json_TPM2_ST_deserialize(jso2, &out->tag);
-    return_if_error(r, "BAD VALUE");
-    if (out != NULL && out->tag != TPM2_ST_VERIFIED) {
-        LOG_ERROR("BAD VALUE %zu != %zu", (size_t)out->tag, (size_t)TPM2_ST_VERIFIED);
     }
 
     if (!ifapi_get_sub_object(jso, "hierarchy", &jso2)) {

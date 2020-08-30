@@ -38,7 +38,14 @@
 #define IFAPI_PCR_LOG_FILE "pcr.log"
 #define IFAPI_OBJECT_TYPE ".json"
 #define IFAPI_OBJECT_FILE "object.json"
-#define IFAPI_SRK_KEY_PATH "HS/SRK"
+#define IFAPI_SRK_KEY_PATH "/HS/SRK"
+#define IFAPI_EK_KEY_PATH "/HE/EK"
+#define IFAPI_HS_PATH "/HS"
+#define IFAPI_HE_PATH "/HE"
+#define IFAPI_HN_PATH "/HN"
+#define IFAPI_LOCKOUT_PATH "/LOCKOUT"
+#define IFAPI_SRK_OBJECT_PATH "/HS/SRK/object.json"
+#define IFAPI_HS_OBJECT_PATH "/HS/object.json"
 
 typedef UINT32 TSS2_KEY_TYPE;
 #define TSS2_SRK 2
@@ -63,8 +70,11 @@ typedef UINT8 IFAPI_SESSION_TYPE;
 #define IFAPI_PEM_PUBLIC_STRING "-----BEGIN PUBLIC KEY-----"
 #define IFAPI_PEM_PRIVATE_KEY "-----PRIVATE KEY-----"
 #define IFAPI_JSON_TAG_POLICY "policy"
+#define IFAPI_JSON_TAG_OBJECT_TYPE "objectType"
 #define IFAPI_JSON_TAG_DUPLICATE "public_parent"
 
+#define FAPI_WRITE W_OK
+#define FAPI_READ R_OK
 
 #if TPM2_MAX_NV_BUFFER_SIZE > TPM2_MAX_DIGEST_BUFFER
 #define IFAPI_MAX_BUFFER_SIZE TPM2_MAX_NV_BUFFER_SIZE
@@ -109,7 +119,7 @@ typedef struct {
     goto_if_error(R, "crypto hash update", LABEL);
 
 #define FAPI_SYNC(r,msg,label, ...)             \
-    if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN) \
+    if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN) \
         return TSS2_FAPI_RC_TRY_AGAIN; \
     if (r != TSS2_RC_SUCCESS) { \
         LOG_ERROR(TPM2_ERROR_FORMAT " " msg, TPM2_ERROR_TEXT(r), ## __VA_ARGS__); \
@@ -123,6 +133,7 @@ enum IFAPI_GET_CERT_STATE {
     GET_CERT_GET_CERT_NV,
     GET_CERT_GET_CERT_NV_FINISH,
     GET_CERT_GET_CERT_READ_PUBLIC,
+    GET_CERT_GET_CERT_READ_HIERARCHY,
     GET_CERT_READ_CERT
 };
 
@@ -143,7 +154,7 @@ typedef struct {
 
 typedef struct {
     char                                 *fapi_version;    /**< The version string of FAPI */
-    char                                  *fapi_config;    /**< The configuration information */
+    IFAPI_CONFIG                           fapi_config;    /**< The configuration information */
     IFAPI_CAP_INFO             cap[IFAPI_MAX_CAP_INFO];
 } IFAPI_INFO;
 
@@ -210,6 +221,7 @@ typedef struct {
     size_t data_idx;            /**< Offset in the read buffer */
     const uint8_t *data;        /**< Buffer for data to be written */
     uint8_t *rdata;             /**< Buffer for data to be read */
+    size_t size;                /**< size of rdata */
     IFAPI_OBJECT auth_object;   /**< Object used for authentication */
     IFAPI_OBJECT nv_object;     /**< Deserialized NV object */
     TPM2B_AUTH auth;            /**< The Password */
@@ -221,7 +233,7 @@ typedef struct {
     enum _FAPI_STATE_NV_READ nv_read_state; /**< The current state of NV read */
     enum _FAPI_STATE_NV_WRITE nv_write_state; /**< The current state of NV write*/
     uint8_t *write_data;
-    char const *logData;         /**< The event log for NV objects of type pcr */
+    char *logData;               /**< The event log for NV objects of type pcr */
     json_object *jso_event_log;  /**< logData in JSON format */
     TPMI_RH_NV_INDEX maxNvIndex; /**< Max index for search for free index  */
     IFAPI_EVENT pcr_event;       /**< Event to be added to log */
@@ -233,6 +245,13 @@ typedef struct {
  */
 typedef struct {
     TPMS_CAPABILITY_DATA *capability; /* TPM capability data to check available algs */
+    char **pathlist;                  /**< The array with all keystore objects */
+    size_t numPaths;                  /**< Size of array with all keystore objects */
+    size_t numNullPrimaries;         /**< Number of NULL hierarchy primaries
+                                          stored in keystore */
+    size_t primary_idx;              /**< Index to the current primary */
+    size_t path_idx;                 /**< Index of array with the object paths */
+    IFAPI_OBJECT *null_primaries;    /**< Array of the NULL hierarchy primaries. */
 } IFAPI_INITIALIZE;
 
 /** The data structure holding internal state of Fapi_PCR commands.
@@ -263,13 +282,16 @@ typedef struct {
     char    const *quoteInfo;
     TPM2B_ATTEST *tpm_quoted;
     TPMT_SIGNATURE *tpm_signature;
-    uint8_t const *signature;
+    uint8_t *signature;
     size_t signatureSize;
     char const *logData;
     char *pcrLog;
     IFAPI_EVENT pcr_event;
     json_object *event_list;
     FAPI_QUOTE_INFO fapi_quote_info;
+    uint8_t *pcrValue;
+    size_t pcrValueSize;
+    char *event_log_file;
 } IFAPI_PCR;
 
 /** The data structure holding internal state of Fapi_SetDescription.
@@ -290,6 +312,7 @@ typedef struct {
     size_t idx;                   /**< Current position in output buffer.  */
     UINT16 bytesRequested;        /**< Byted currently requested from TPM */
     uint8_t *data;                /**< The buffer for the random data */
+    uint8_t *ret_data;            /**< The result buffer. */
 } IFAPI_GetRandom;
 
 /** The data structure holding internal state of Fapi_Key_Setcertificate.
@@ -308,12 +331,30 @@ enum IFAPI_KEY_CREATE_STATE {
     KEY_CREATE_WAIT_FOR_SESSION,
     KEY_CREATE_WAIT_FOR_PARENT,
     KEY_CREATE_AUTH_SENT,
+    KEY_CREATE_WAIT_FOR_LOAD_AUTHORIZATION,
+    KEY_CREATE_WAIT_FOR_KEY,
+    KEY_CREATE_WAIT_FOR_HIERARCHY,
+    KEY_CREATE_AUTHORIZE_HIERARCHY,
+    KEY_CREATE_WAIT_FOR_EVICT_CONTROL,
     KEY_CREATE_WRITE_PREPARE,
     KEY_CREATE_WRITE,
-    KEY_CREATE_FLUSH,
+    KEY_CREATE_FLUSH1,
+    KEY_CREATE_FLUSH2,
     KEY_CREATE_CALCULATE_POLICY,
     KEY_CREATE_WAIT_FOR_AUTHORIZATION,
-    KEY_CREATE_CLEANUP
+    KEY_CREATE_CLEANUP,
+    KEY_CREATE_WAIT_FOR_RANDOM,
+    KEY_CREATE_PRIMARY_INIT,
+    KEY_CREATE_PRIMARY_WAIT_FOR_SESSION,
+    KEY_CREATE_PRIMARY_WAIT_FOR_HIERARCHY,
+    KEY_CREATE_PRIMARY_WAIT_FOR_AUTHORIZE1,
+    KEY_CREATE_PRIMARY_WAIT_FOR_AUTHORIZE2,
+    KEY_CREATE_PRIMARY_WAIT_FOR_PRIMARY,
+    KEY_CREATE_PRIMARY_WAIT_FOR_EVICT_CONTROL,
+    KEY_CREATE_PRIMARY_FLUSH,
+    KEY_CREATE_PRIMARY_WRITE_PREPARE,
+    KEY_CREATE_PRIMARY_WRITE,
+    KEY_CREATE_PRIMARY_CLEANUP
 };
 
 /** The data structure holding internal state of Fapi_CreateKey.
@@ -326,6 +367,7 @@ typedef struct {
     IFAPI_OBJECT object;          /**< The current object. */
     IFAPI_KEY_TEMPLATE public_templ;  /**< The template for the keys public data */
     TPM2B_PUBLIC public;         /**< The public data of the key */
+    IFAPI_OBJECT hierarchy;     /**< The current used hierarchy for CreatePrimary */
     TPM2B_SENSITIVE_CREATE inSensitive;
     TPM2B_DATA outsideInfo;
     TPML_PCR_SELECTION creationPCR;
@@ -333,6 +375,8 @@ typedef struct {
     const char *authValue;
     const char *policyPath;
     const IFAPI_PROFILE *profile;
+    bool gen_sensitive_random;   /**< Switch whether sensitive ransom data
+                                      has to be created. */
 } IFAPI_Key_Create;
 
 /** The data structure holding internal state of Fapi_EncryptDecrypt.
@@ -352,6 +396,10 @@ typedef struct {
     char *policy_path;
     ESYS_TR auth_session;
     const IFAPI_PROFILE *profile;
+    uint8_t *plainText;
+    size_t plainTextSize;
+    uint8_t *cipherText;
+    size_t cipherTextSize;
 } IFAPI_Data_EncryptDecrypt;
 
 /** The states for signing  */
@@ -376,6 +424,10 @@ typedef struct {
     TPMI_YES_NO decrypt;            /**< Switch for symmetric algs */
     TPMT_SIGNATURE *signature;      /**< Produced TPM singature */
     char const *padding;            /**< Optional padding parameter for key sign. */
+    char *certificate;              /**< Certificate of the signing key. */
+    uint8_t *ret_signature;         /**< Result signature */
+    size_t signatureSize;
+    char *publicKey;                /**< Public key of the signing key. */
 } IFAPI_Key_Sign;
 
 /** The data structure holding internal state of Fapi_Unseal.
@@ -409,6 +461,7 @@ enum IFAPI_HIERACHY_AUTHORIZATION_STATE {
 enum IFAPI_HIERACHY_POLICY_AUTHORIZATION_STATE {
     HIERARCHY_CHANGE_POLICY_INIT = 0,
     HIERARCHY_CHANGE_POLICY_NULL_AUTH_SENT,
+    HIERARCHY_CHANGE_POLICY_AUTHORIZE,
     HIERARCHY_CHANGE_POLICY_AUTH_SENT
 };
 
@@ -447,9 +500,20 @@ typedef struct {
 /** The data structure holding internal state of Provisioning.
  */
 typedef struct {
-    IFAPI_OBJECT hierarchy;     /**< The current used hierarchy for CreatePrimary */
+    IFAPI_OBJECT hierarchy_lockout; /**< The lockout hierarchy */
+    IFAPI_OBJECT hierarchy_hs;      /**< The storage hierarchy */
+    IFAPI_OBJECT hierarchy_he;      /**< The endorsement hierarchy */
+    IFAPI_OBJECT hierarchy_hn;      /**< The null hierarchy */
+    IFAPI_OBJECT *hierarchy;         /**< The current hierarchy */
+    TPMS_POLICY *hierarchy_policy;  /**< Policy of the current used hierarchy. */
     IFAPI_KEY_TEMPLATE public_templ;  /**< The basic template for the keys public data */
     TPM2B_PUBLIC public;       /**< The public info of the created primary */
+    char **pathlist;                /**< The array with all keystore objects */
+    size_t numPaths;                /**< Size of array with all keystore objects */
+    size_t numHierarchyObjects;      /**< Number of hierarchies stored in keystore */
+    size_t hiearchy_idx;            /**< Index to the current hierarchy */
+    size_t path_idx;                /**< Index of array with the object paths */
+    IFAPI_OBJECT *hierarchies;     /**< Array of the hierarchies stored in keystore. */
     TPM2B_SENSITIVE_CREATE inSensitive;
     TPM2B_DATA outsideInfo;
     TPML_PCR_SELECTION creationPCR;
@@ -462,6 +526,7 @@ typedef struct {
     size_t digest_idx;
     size_t hash_size;
     TPM2_HANDLE cert_nv_idx;
+    TPM2B_NV_PUBLIC *nvPublic;
     ESYS_TR esys_nv_cert_handle;
     char *pem_cert;
     TPM2_ALG_ID cert_key_type;
@@ -473,6 +538,11 @@ typedef struct {
     TPM2B_DIGEST policy_digest;
     char *intermed_crt;
     char *root_crt;
+    TPMA_PERMANENT auth_state;
+    ESYS_TR srk_esys_handle;
+    ESYS_TR ek_esys_handle;
+    ESYS_TR srk_tpm_handle;
+    ESYS_TR ek_tpm_handle;
 } IFAPI_Provision;
 
 /** The data structure holding internal state of regenerate primary key.
@@ -486,6 +556,7 @@ typedef struct {
     TPML_PCR_SELECTION creationPCR;
     ESYS_TR handle;
     TPMI_DH_PERSISTENT persistent_handle;
+    TPMS_CAPABILITY_DATA *capabilityData;
 } IFAPI_CreatePrimary;
 
 /** The data structure holding internal state of key verify signature.
@@ -583,14 +654,15 @@ typedef struct {
     IFAPI_OBJECT dup_key;                        /**< The key to be duplicated or exported  */
     struct TPMS_POLICY policy;
     ESYS_TR handle_ext_key;
+    char *exportedData;
 } IFAPI_ExportKey;
 
 /** The data structure holding internal state of export policy.
  */
 typedef struct {
-    char   const *path;                          /**<  Path of the object with the policy to be
-                                                       exported */
-    IFAPI_OBJECT object;                         /**<  Object corresponding to path */
+    char   const *path;                          /**< Path of the object with the policy to be
+                                                      exported */
+    IFAPI_OBJECT object;                         /**< Object corresponding to path */
 } IFAPI_ExportPolicy;
 
 /** The data structure holding internal state of import key.
@@ -604,6 +676,7 @@ typedef struct {
     char *out_path;
     TPM2B_PRIVATE *private;
     char *jso_string;
+    const IFAPI_PROFILE *profile;
 } IFAPI_ImportKey;
 
 
@@ -638,6 +711,23 @@ typedef struct {
     size_t path_idx;                /**< Index of array with the object files to be deleted */
 } IFAPI_Entity_Delete;
 
+/** The data structure holding internal state of esys get blob.
+ */
+typedef struct {
+    uint8_t type;                   /**< type of blob to be returned */
+    uint8_t *data;                   /**< data of the blob to be returned */
+    size_t length;                  /**< The size of the data to be returned */
+    bool is_key;                    /**< Object is a key */
+    bool is_persistent_key;         /**< Object is a persistent key */
+    ESYS_TR new_object_handle;
+    TPM2_HANDLE permanentHandle;    /**< The TPM permanent handle */
+    IFAPI_OBJECT auth_object;       /**< Object used for authentication */
+    ESYS_TR auth_index;             /**< The ESAPI handle of the nv authorization object */
+    char *path;                     /**< The path of the object */
+    IFAPI_OBJECT object;            /**< Deserialized object */
+    IFAPI_OBJECT *key_object;       /**< Loaded key object */
+} IFAPI_GetEsysBlob;
+
 /** The data structure holding internal state of list entities.
  */
 typedef struct {
@@ -655,6 +745,7 @@ typedef union {
     IFAPI_Key_SetCertificate Key_SetCertificate;
     IFAPI_Entity_ChangeAuth Entity_ChangeAuth;
     IFAPI_Entity_Delete Entity_Delete;
+    IFAPI_GetEsysBlob GetEsysBlob;
     IFAPI_Entities_List Entities_List;
     IFAPI_Key_VerifySignature Key_VerifySignature;
     IFAPI_Data_EncryptDecrypt Data_EncryptDecrypt;
@@ -677,8 +768,11 @@ enum _FAPI_STATE_PRIMARY {
     PRIMARY_READ_HIERARCHY,
     PRIMARY_READ_HIERARCHY_FINISH,
     PRIMARY_AUTHORIZE_HIERARCHY,
+    PRIMARY_WAIT_FOR_PRIMARY,
     PRIMARY_HAUTH_SENT,
-    PRIMARY_CREATED
+    PRIMARY_CREATED,
+    PRIMARY_VERIFY_PERSISTENT,
+    PRIMARY_GET_CAP
 };
 
 /** The states for the FAPI's primary key regeneration */
@@ -715,7 +809,11 @@ enum _FAPI_STATE {
     INITIALIZE_WAIT_FOR_CAP,
     INITIALIZE_READ_PROFILE,
     INITIALIZE_READ_PROFILE_INIT,
-
+    INITIALIZE_READ_TIME,
+    INITIALIZE_CHECK_NULL_PRIMARY,
+    INITIALIZE_READ_NULL_PRIMARY,
+    PROVISION_WAIT_FOR_GET_CAP_AUTH_STATE,
+    PROVISION_WAIT_FOR_GET_CAP0,
     PROVISION_WAIT_FOR_GET_CAP1,
     PROVISION_INIT_GET_CAP2,
     PROVISION_WAIT_FOR_GET_CAP2,
@@ -725,7 +823,7 @@ enum _FAPI_STATE {
     PROVISION_READ_CERT,
     PROVISION_PREPARE_READ_ROOT_CERT,
     PROVISION_READ_ROOT_CERT,
-    PROVISION_READ_PROFILE,
+    PROVISION_INIT,
     PROVISION_INIT_SRK,
     PROVISION_WAIT_FOR_EK_SESSION,
     PROVISION_WAIT_FOR_SRK_SESSION,
@@ -753,14 +851,25 @@ enum _FAPI_STATE {
     PROVISION_FINISHED,
     PROVISION_WRITE_SH,
     PROVISION_WRITE_EH,
+    PROVISION_PREPARE_NULL,
+    PROVISION_WRITE_NULL,
     PROVISION_WRITE_LOCKOUT,
     PROVISION_WRITE_LOCKOUT_PARAM,
+    PROVISION_PREPARE_LOCKOUT_PARAM,
+    PROVISION_AUTHORIZE_LOCKOUT,
     PROVISION_FLUSH_SRK,
     PROVISION_FLUSH_EK,
     PROVISION_CHECK_FOR_VENDOR_CERT,
     PROVISION_GET_VENDOR,
+    PROVISION_GET_HIERARCHIES,
+    PROVISION_READ_HIERARCHIES,
+    PROVISION_READ_HIERARCHY,
+    PROVISION_WRITE_HIERARCHIES,
+    PROVISION_WRITE_HIERARCHY,
+    PROVISION_PREPARE_GET_CAP_AUTH_STATE,
 
     KEY_CREATE,
+    KEY_CREATE_PRIMARY,
 
     CREATE_SEAL,
 
@@ -822,10 +931,28 @@ enum _FAPI_STATE {
     ENTITY_DELETE_NULL_AUTH_SENT_FOR_NV,
     ENTITY_DELETE_AUTH_SENT_FOR_NV,
     ENTITY_DELETE_KEY,
+    ENTITY_DELETE_KEY_WAIT_FOR_HIERARCHY,
+    ENTITY_DELETE_KEY_WAIT_FOR_AUTHORIZATION,
     ENTITY_DELETE_AUTHORIZE_NV,
     ENTITY_DELETE_FILE,
     ENTITY_DELETE_POLICY,
     ENTITY_DELETE_REMOVE_DIRS,
+    ENTITY_DELETE_CLEANUP,
+    ENTITY_DELETE_READ_HIERARCHY,
+
+    GET_ESYS_BLOB_GET_FILE,
+    GET_ESYS_BLOB_READ,
+    GET_ESYS_BLOB_NULL_AUTH_SENT_FOR_KEY,
+    GET_ESYS_BLOB_AUTH_SENT_FOR_KEY,
+    GET_ESYS_BLOB_NULL_AUTH_SENT_FOR_NV,
+    GET_ESYS_BLOB_AUTH_SENT_FOR_NV,
+    GET_ESYS_BLOB_KEY,
+    GET_ESYS_BLOB_WAIT_FOR_KEY,
+    GET_ESYS_BLOB_WAIT_FOR_CONTEXT_SAVE,
+    GET_ESYS_BLOB_SERIALIZE,
+    GET_ESYS_BLOB_FILE,
+    GET_ESYS_BLOB_WAIT_FOR_FLUSH,
+    GET_ESYS_BLOB_CLEANUP,
 
     ENTITY_GET_TPM_BLOBS_READ,
 
@@ -865,6 +992,7 @@ enum _FAPI_STATE {
 
     PCR_EXTEND_WAIT_FOR_SESSION,
     PCR_EXTEND_WAIT_FOR_GET_CAP,
+    PCR_EXTEND_READ_EVENT_LOG,
     PCR_EXTEND_APPEND_EVENT_LOG,
     PCR_EXTEND_FINISH,
     PCR_EXTEND_CLEANUP,
@@ -925,6 +1053,14 @@ enum _FAPI_STATE {
     IMPORT_KEY_WRITE_OBJECT_PREPARE,
     IMPORT_KEY_WRITE_OBJECT,
     IMPORT_KEY_CLEANUP,
+    IMPORT_WAIT_FOR_SESSION,
+    IMPORT_WAIT_FOR_PARENT,
+    IMPORT_WAIT_FOR_AUTHORIZATION,
+    IMPORT_WAIT_FOR_KEY,
+    IMPORT_WRITE,
+    IMPORT_FLUSH_PARENT,
+    IMPORT_FLUSH_KEY,
+    IMPORT_CLEANUP,
 
     UNSEAL_WAIT_FOR_KEY,
     UNSEAL_AUTHORIZE_OBJECT,
@@ -978,6 +1114,7 @@ struct FAPI_CONTEXT {
     struct IFAPI_KEYSTORE keystore;
     struct IFAPI_POLICY_STORE pstore;
     struct IFAPI_PROFILES profiles;
+    TPMS_TIME_INFO init_time;        /**< The current time during FAPI initialization. **/
 
     enum _FAPI_STATE state;          /**< The current state of the command execution */
     enum _FAPI_STATE_PRIMARY primary_state; /**< The current state of the primary regeneration */
@@ -988,7 +1125,7 @@ struct FAPI_CONTEXT {
     enum IFAPI_GET_CERT_STATE get_cert_state;
     enum _FAPI_FLUSH_STATE flush_object_state;  /**< The current state of a flush operation */
     enum IFAPI_CLEANUP_STATE cleanup_state;     /**< The state of cleanup after command execution */
-    IFAPI_CONFIG config;             /**< The profile independet configuration data */
+    IFAPI_CONFIG config;             /**< The profile independent configuration data */
     UINT32 nv_buffer_max;            /**< The maximal size for transfer of nv buffer content */
     IFAPI_CMD_STATE cmd;             /**< The state information of the currently executed
                                           command */
@@ -1001,8 +1138,8 @@ struct FAPI_CONTEXT {
     ESYS_TR policy_session;          /**< The policy session used by FAPI  */
     ESYS_TR ek_handle;
     ESYS_TR srk_handle;
-    bool ek_persistent;
-    bool srk_persistent;
+    TPMI_DH_PERSISTENT ek_persistent;
+    TPMI_DH_PERSISTENT srk_persistent;
     IFAPI_SESSION_TYPE session_flags;
     TPMA_SESSION session1_attribute_flags;
     TPMA_SESSION session2_attribute_flags;
@@ -1013,6 +1150,7 @@ struct FAPI_CONTEXT {
     enum IFAPI_IO_STATE io_state;
     NODE_OBJECT_T *object_list;
     IFAPI_OBJECT *duplicate_key; /**< Will be needed for policy execution */
+    IFAPI_OBJECT *current_auth_object;
 };
 
 #define VENDOR_IFX  0x49465800

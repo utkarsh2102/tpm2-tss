@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -23,18 +24,23 @@
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
     char *pw = PASSWORD;
     if (!pw)
         return TSS2_FAPI_RC_GENERAL_FAILURE;
 
-    *auth = strdup(pw);
+    *auth = pw;
     return TSS2_RC_SUCCESS;
 }
 
@@ -61,8 +67,10 @@ test_fapi_key_create_sign_policy_provision(FAPI_CONTEXT *context)
     char *sigscheme = NULL;
     uint8_t *publicblob = NULL;
     uint8_t *privateblob = NULL;
+    char *policy = NULL;
     uint8_t *signature = NULL;
     char *publicKey = NULL;
+    char *certificate = NULL;
     char *path_list = NULL;
 
     const char *cert =
@@ -115,20 +123,31 @@ test_fapi_key_create_sign_policy_provision(FAPI_CONTEXT *context)
 
     r = Fapi_GetTpmBlobs(context,  "HS/SRK/mySignKey", &publicblob,
                          &publicsize,
-                         &privateblob, &privatesize, NULL);
+                         &privateblob, &privatesize, &policy);
     goto_if_error(r, "Error Fapi_GetTpmBlobs", error);
-
-    r = Fapi_Sign(context, "HS/SRK/mySignKey", sigscheme,
-                  &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
-    goto_if_error(r, "Error Fapi_Sign", error);
-
+    assert(publicblob != NULL);
+    assert(privateblob != NULL);
+    assert(policy != NULL);
+    assert(strlen(policy) == 0);
 
     r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", cert);
     goto_if_error(r, "Error Fapi_SetCertificate", error);
 
+
+    r = Fapi_Sign(context, "HS/SRK/mySignKey", sigscheme,
+                  &digest.buffer[0], digest.size, &signature, &signatureSize,
+                  &publicKey, &certificate);
+    goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
+
     r = Fapi_List(context, "/", &path_list);
     goto_if_error(r, "Error Fapi_Delete", error);
+    assert(path_list != NULL);
+    assert(strlen(path_list) > ASSERT_SIZE);
 
     LOG_INFO("\nPathList:\n%s\n", path_list);
 
@@ -137,17 +156,21 @@ test_fapi_key_create_sign_policy_provision(FAPI_CONTEXT *context)
 
     SAFE_FREE(publicblob);
     SAFE_FREE(privateblob);
+    SAFE_FREE(policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(path_list);
     return EXIT_SUCCESS;
 
 error:
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
     SAFE_FREE(publicblob);
     SAFE_FREE(privateblob);
+    SAFE_FREE(policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(path_list);
     return EXIT_FAILURE;
 }

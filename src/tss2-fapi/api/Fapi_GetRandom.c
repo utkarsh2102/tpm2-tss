@@ -51,6 +51,9 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_GetRandom(
@@ -92,7 +95,7 @@ Fapi_GetRandom(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_GetRandom_Finish(context, data);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -128,6 +131,9 @@ Fapi_GetRandom(
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_GetRandom_Async(
@@ -151,6 +157,7 @@ Fapi_GetRandom_Async(
 
     /* Copy parameters to context for use during _Finish. */
     command->numBytes = numBytes;
+    command->ret_data = NULL;
     command->data = NULL;
 
     /* Start a session for integrity protection and encryption of random data. */
@@ -194,6 +201,9 @@ Fapi_GetRandom_Async(
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_GetRandom_Finish(
@@ -225,7 +235,7 @@ Fapi_GetRandom_Finish(
         statecase(context->state, GET_RANDOM_WAIT_FOR_RANDOM);
             /* Retrieve the random data from the TPM.
                This may involve several Esys_GetRandom calls. */
-            r = ifapi_get_random(context, command->numBytes, data);
+            r = ifapi_get_random(context, command->numBytes, &command->ret_data);
             return_try_again(r);
             goto_if_error_reset_state(r, "FAPI GetRandom", error_cleanup);
             fallthrough;
@@ -235,6 +245,7 @@ Fapi_GetRandom_Finish(
             r = ifapi_cleanup_session(context);
             try_again_or_error_goto(r, "Cleanup", error_cleanup);
 
+            *data = command->ret_data;
             break;
 
         statecasedefault(context->state);

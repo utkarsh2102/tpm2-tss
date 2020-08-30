@@ -16,6 +16,7 @@
 #include <json-c/json.h>
 #include <json-c/json_util.h>
 #include <json-c/json_tokener.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -72,6 +73,10 @@ test_fapi_quote(FAPI_CONTEXT *context)
     r = Fapi_CreateKey(context, "HS/SRK/mySignKey", "sign,noDa", "", NULL);
     goto_if_error(r, "Error Fapi_CreateKey", error);
 
+   r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", "-----BEGIN "  \
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_SetCertificate", error);
+
     uint8_t qualifyingData[20] = {
         0x67, 0x68, 0x03, 0x3e, 0x21, 0x64, 0x68, 0x24, 0x7b, 0xd0,
         0x31, 0xa0, 0xa2, 0xd9, 0x87, 0x6d, 0x79, 0x81, 0x8f, 0x8f
@@ -90,9 +95,21 @@ test_fapi_quote(FAPI_CONTEXT *context)
                    &signature, &signatureSize,
                    &pcrEventLog, &certificate);
     goto_if_error(r, "Error Fapi_Quote", error);
+    assert(quoteInfo != NULL);
+    assert(signature != NULL);
+    assert(pcrEventLog != NULL);
+    assert(certificate != NULL);
+    assert(strlen(quoteInfo) > ASSERT_SIZE);
+    assert(strlen(pcrEventLog) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
+
+    LOG_INFO("\npcrEventLog: %s\n", pcrEventLog);
+
 
     r = Fapi_ExportKey(context, "HS/SRK/mySignKey", NULL, &export_data);
     goto_if_error(r, "Export.", error);
+    assert(export_data != NULL);
+    assert(strlen(export_data) > ASSERT_SIZE);
 
     jso = json_tokener_parse(export_data);
 
@@ -114,6 +131,9 @@ test_fapi_quote(FAPI_CONTEXT *context)
     r = Fapi_PcrRead(context, 16, &pcr_digest,
                      &pcr_digest_size, &log);
     goto_if_error(r, "Error Fapi_PcrRead", error);
+    assert(pcr_digest != NULL);
+    assert(log != NULL);
+    assert(strlen(log) > ASSERT_SIZE);
 
     LOG_INFO("\nLog:\n%s\n", log);
     LOG_INFO("Quote Info:\n%s\n", quoteInfo);
@@ -123,11 +143,13 @@ test_fapi_quote(FAPI_CONTEXT *context)
                          signature, signatureSize, log);
     goto_if_error(r, "Error Fapi_Verfiy_Quote", error);
 
-    r = Fapi_Delete(context, "/HS/SRK");
-    goto_if_error(r, "Error Fapi_Delete", error);
-
     r = Fapi_List(context, "/", &pathlist);
     goto_if_error(r, "Pathlist", error);
+    assert(pathlist != NULL);
+    assert(strlen(pathlist) > ASSERT_SIZE);
+
+    r = Fapi_Delete(context, "/");
+    goto_if_error(r, "Error Fapi_Delete", error);
 
     json_object_put(jso);
     SAFE_FREE(pubkey_pem);
@@ -142,6 +164,7 @@ test_fapi_quote(FAPI_CONTEXT *context)
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     if (jso)
         json_object_put(jso);
     SAFE_FREE(pubkey_pem);

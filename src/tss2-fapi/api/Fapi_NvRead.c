@@ -59,6 +59,7 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_NvRead(
@@ -103,7 +104,7 @@ Fapi_NvRead(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_NvRead_Finish(context, data, size, logData);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -145,6 +146,7 @@ Fapi_NvRead(
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_NvRead_Async(
@@ -207,7 +209,8 @@ error_cleanup:
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_TRY_AGAIN: if the asynchronous operation is not yet
  *         complete. Call this function again later.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
@@ -220,6 +223,7 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_NvRead_Finish(
@@ -259,9 +263,7 @@ Fapi_NvRead_Finish(
 
         command->esys_handle = object->handle;
         command->nv_obj = object->misc.nv;
-
-        if (size)
-            *size = object->misc.nv.public.nvPublic.dataSize;
+        command->size = object->misc.nv.public.nvPublic.dataSize;
         command->numBytes = object->misc.nv.public.nvPublic.dataSize;
 
         /* Determine auth object */
@@ -301,7 +303,7 @@ Fapi_NvRead_Finish(
     statecase(context->state, NV_READ_WAIT)
         if (data) {
             /* Read the data from the TPM. */
-            r = ifapi_nv_read(context, data, &readSize);
+            r = ifapi_nv_read(context, &command->rdata, &readSize);
             return_try_again(r);
 
             goto_if_error_reset_state(r, " FAPI NV_Read", error_cleanup);
@@ -310,7 +312,11 @@ Fapi_NvRead_Finish(
         if (logData) {
             /* Duplicate the logdata that may have been stored during a
                NvExtend command. */
-            strdup_check(*logData, object->misc.nv.event_log, r, error_cleanup);
+            if (object->misc.nv.event_log) {
+                strdup_check(command->logData, object->misc.nv.event_log, r, error_cleanup);
+            } else {
+               strdup_check(command->logData, "", r, error_cleanup);
+            }
         }
         fallthrough;
 
@@ -319,6 +325,11 @@ Fapi_NvRead_Finish(
         r = ifapi_cleanup_session(context);
         try_again_or_error_goto(r, "Cleanup", error_cleanup);
 
+        if (logData)
+            *logData = command->logData;
+        *data = command->rdata;
+        if (size)
+            *size = command->size;
         context->state = _FAPI_STATE_INIT;
         break;
 

@@ -13,16 +13,16 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** Test the ESAPI function Esys_SetAlgorithmSet.
+/** Test the ESYS function Esys_SetAlgorithmSet.
  *
  *\b Note: platform authorization needed.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_SetAlgorithmSet() (O)
  *
  * @param[in,out] esys_context The ESYS_CONTEXT.
@@ -55,7 +55,7 @@ test_esys_set_algorithm_set(ESYS_CONTEXT * esys_context)
         goto error;
     }
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         failure_return = EXIT_SKIP;
@@ -70,6 +70,6 @@ test_esys_set_algorithm_set(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_set_algorithm_set(esys_context);
 }

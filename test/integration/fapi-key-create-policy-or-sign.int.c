@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -31,7 +32,7 @@ static bool cb_called = false;
 
 static TSS2_RC
 branch_callback(
-    FAPI_CONTEXT *context,
+    char   const *objectPath,
     char   const *description,
     char  const **branchNames,
     size_t        numBranches,
@@ -40,6 +41,10 @@ branch_callback(
 {
     (void) description;
     (void) userData;
+
+    if (strcmp(objectPath, "P_ECC/HS/SRK/mySignKey") != 0) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "Unexpected path");
+    }
 
     if (numBranches != 2) {
         LOG_ERROR("Wrong number of branches");
@@ -89,6 +94,7 @@ test_fapi_key_create_policy_or_sign(FAPI_CONTEXT *context)
     char *json_policy = NULL;
     uint8_t *signature = NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
     long policy_size;
 
     r = Fapi_Provision(context, NULL, NULL, NULL);
@@ -123,6 +129,11 @@ test_fapi_key_create_policy_or_sign(FAPI_CONTEXT *context)
     r = Fapi_CreateKey(context, "/HS/SRK/mySignKey", SIGN_TEMPLATE,
                        policy_name, PASSWORD);
     goto_if_error(r, "Error Fapi_CreateKey", error);
+
+    r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     size_t signatureSize = 0;
 
     TPM2B_DIGEST digest = {
@@ -136,17 +147,27 @@ test_fapi_key_create_policy_or_sign(FAPI_CONTEXT *context)
     r = Fapi_SetBranchCB(context, branch_callback, NULL);
     goto_if_error(r, "Error SetPolicybranchselectioncallback", error);
 
+    r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     r = Fapi_Sign(context, "/HS/SRK/mySignKey", NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(json_policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
 
     if (!cb_called) {
         LOG_ERROR("Branch selection callback was not called.");
@@ -156,9 +177,11 @@ test_fapi_key_create_policy_or_sign(FAPI_CONTEXT *context)
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(json_policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     return EXIT_FAILURE;
 }
 

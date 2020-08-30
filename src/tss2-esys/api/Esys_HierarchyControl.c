@@ -71,7 +71,7 @@ Esys_HierarchyControl(
     ESYS_TR shandle1,
     ESYS_TR shandle2,
     ESYS_TR shandle3,
-    TPMI_RH_ENABLES enable,
+    ESYS_TR enable,
     TPMI_YES_NO state)
 {
     TSS2_RC r;
@@ -94,10 +94,10 @@ Esys_HierarchyControl(
         r = Esys_HierarchyControl_Finish(esysContext);
         /* This is just debug information about the reattempt to finish the
            command */
-        if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
+        if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
             LOG_DEBUG("A layer below returned TRY_AGAIN: %" PRIx32
                       " => resubmitting command", r);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Restore the timeout value to the original value */
     esysContext->timeout = timeouttmp;
@@ -151,7 +151,7 @@ Esys_HierarchyControl_Async(
     ESYS_TR shandle1,
     ESYS_TR shandle2,
     ESYS_TR shandle3,
-    TPMI_RH_ENABLES enable,
+    ESYS_TR enable,
     TPMI_YES_NO state)
 {
     TSS2_RC r;
@@ -160,12 +160,22 @@ Esys_HierarchyControl_Async(
               esysContext, authHandle, enable, state);
     TSS2L_SYS_AUTH_COMMAND auths;
     RSRC_NODE_T *authHandleNode;
+    TPMI_RH_ENABLES tpm_enable;
 
     /* Check context, sequence correctness and set state to error for now */
     if (esysContext == NULL) {
         LOG_ERROR("esyscontext is NULL.");
         return TSS2_ESYS_RC_BAD_REFERENCE;
     }
+
+    r = iesys_handle_to_tpm_handle(enable, &tpm_enable);
+    if (r != TSS2_RC_SUCCESS) {
+        if (!iesys_is_platform_handle(enable)) {
+            return r;
+        }
+        tpm_enable = enable;
+    }
+
     r = iesys_check_sequence_async(esysContext);
     if (r != TSS2_RC_SUCCESS)
         return r;
@@ -182,8 +192,8 @@ Esys_HierarchyControl_Async(
     /* Initial invocation of SAPI to prepare the command buffer with parameters */
     r = Tss2_Sys_HierarchyControl_Prepare(esysContext->sys,
                                           (authHandleNode == NULL) ? TPM2_RH_NULL
-                                           : authHandleNode->rsrc.handle, enable,
-                                          state);
+                                           : authHandleNode->rsrc.handle,
+                                           tpm_enable, state);
     return_state_if_error(r, _ESYS_STATE_INIT, "SAPI Prepare returned error.");
 
     /* Calculate the cpHash Values */
@@ -269,7 +279,7 @@ Esys_HierarchyControl_Finish(
 
     /*Receive the TPM response and handle resubmissions if necessary. */
     r = Tss2_Sys_ExecuteFinish(esysContext->sys, esysContext->timeout);
-    if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN) {
+    if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN) {
         LOG_DEBUG("A layer below returned TRY_AGAIN: %" PRIx32, r);
         esysContext->state = _ESYS_STATE_SENT;
         return r;

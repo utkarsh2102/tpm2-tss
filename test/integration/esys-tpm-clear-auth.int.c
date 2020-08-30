@@ -13,7 +13,7 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGDEFAULT LOGLEVEL_INFO
 #define LOGMODULE test
 #include "util/log.h"
@@ -88,8 +88,8 @@ test_esys_clear_auth(ESYS_CONTEXT * esys_context)
                                  ESYS_TR_PASSWORD, ESYS_TR_NONE, ESYS_TR_NONE,
                                  &auth);
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH ||
-        (r & ~TPM2_RC_N_MASK) == TPM2_RC_HIERARCHY) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH ||
+        number_rc(r) == TPM2_RC_HIERARCHY) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         failure_return = EXIT_SKIP;
@@ -130,6 +130,6 @@ test_esys_clear_auth(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_clear_auth(esys_context);
 }

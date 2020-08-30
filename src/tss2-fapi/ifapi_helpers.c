@@ -59,7 +59,8 @@ ifapi_set_key_flags(const char *type, bool policy, IFAPI_KEY_TEMPLATE *template)
     type_dup = strdup(type);
     return_if_null(type_dup, "Out of memory.", TSS2_FAPI_RC_MEMORY);
 
-    char *flag = strtok(type_dup, ", ");
+    char *saveptr;
+    char *flag = strtok_r(type_dup, ", ", &saveptr);
 
     /* The default store will be the user directory */
     template->system = TPM2_NO;
@@ -92,7 +93,7 @@ ifapi_set_key_flags(const char *type, bool policy, IFAPI_KEY_TEMPLATE *template)
             goto_error(r, TSS2_FAPI_RC_BAD_VALUE, "Invalid flag: %s",
                        error, flag);
         }
-        flag = strtok(NULL, " ,");
+        flag = strtok_r(NULL, " ,", &saveptr);
     }
     if (exportable) {
         /* Clear flags preventing duplication */
@@ -109,10 +110,12 @@ ifapi_set_key_flags(const char *type, bool policy, IFAPI_KEY_TEMPLATE *template)
     else
         attributes |= TPMA_OBJECT_ADMINWITHPOLICY;
 
-    /* Check whether flags are appropriate */
+    /* Check whether flags are appropriate for restricted keys */
     if (attributes & TPMA_OBJECT_RESTRICTED &&
-            attributes & TPMA_OBJECT_SIGN_ENCRYPT &&
-            attributes & TPMA_OBJECT_DECRYPT) {
+        ((attributes & TPMA_OBJECT_SIGN_ENCRYPT &&
+          attributes & TPMA_OBJECT_DECRYPT)
+         || (!(attributes & TPMA_OBJECT_SIGN_ENCRYPT) &&
+             !(attributes & TPMA_OBJECT_DECRYPT)))) {
         goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
                    "Exactly either sign or decrypt must be set.",
                    error);
@@ -157,7 +160,8 @@ ifapi_set_nv_flags(const char *type, IFAPI_NV_TEMPLATE *template,
     /* The default store will be the user directory */
     template->system = TPM2_NO;
 
-    char *flag = strtok(type_dup, ", ");
+    char *saveptr;
+    char *flag = strtok_r(type_dup, ", ", &saveptr);
 
     /* Loop over all comma or space separated flags */
     while (flag != NULL) {
@@ -185,7 +189,7 @@ ifapi_set_nv_flags(const char *type, IFAPI_NV_TEMPLATE *template,
             goto_error(r, TSS2_FAPI_RC_BAD_VALUE, "Invalid flag: %s",
                        error, flag);
         }
-        flag = strtok(NULL, " ,");
+        flag = strtok_r(NULL, " ,", &saveptr);
     }
     if (type_count > 1) {
         goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
@@ -277,10 +281,49 @@ ifapi_get_hierary_handle(const char *path)
     if (strcmp(&path[pos], "HS") == 0) {
         return ESYS_TR_RH_OWNER;
     }
+    if (strcmp(&path[pos], "HN") == 0) {
+        return  ESYS_TR_RH_NULL ;
+    }
     if (strcmp(&path[pos], "LOCKOUT") == 0) {
         return ESYS_TR_RH_LOCKOUT;
     }
     return 0;
+}
+
+/** Determine whether path is a primary in the null hierarchy.
+ *
+ * @param[in] path The path to be checked.
+ *
+ * @retval true if the path describes a null hierarchy primary.
+ * @retval false if not.
+ */
+bool
+ifapi_null_primary_p(const char *path)
+{
+    size_t pos1 = 0;
+    size_t pos2 = 0;
+    char *start;
+
+    if (strncmp("/", path, 1) == 0)
+        pos1 = 1;
+    /* Skip profile if it does exist in path */
+    if (strncmp("P_", &path[pos1], 2) == 0) {
+        start = strchr(&path[pos1], IFAPI_FILE_DELIM_CHAR);
+        if (start) {
+            pos2 = (int)(start - &path[pos1]);
+            if (strncmp("/", &path[pos1 + pos2], 1) == 0)
+                pos2 += 1;
+            if (strncmp("/", &path[pos1 + pos2], 1) == 0)
+                pos2 += 1;
+        }
+    }
+    /* Check whether there is only one name after the hiearchy. */
+    if (strncasecmp(&path[pos1 + pos2], "HN/", 3) == 0 &&
+        !strchr(&path[pos1 + pos2 + 3], IFAPI_FILE_DELIM_CHAR)) {
+        return true;
+    } else {
+        return false;
+    }
 }
 
 /** Determine whether path describes a hierarchy object.
@@ -307,19 +350,16 @@ ifapi_hierarchy_path_p(const char *path)
         start = strchr(&path[pos1], IFAPI_FILE_DELIM_CHAR);
         if (start) {
             pos2 = (int)(start - &path[pos1]);
-            if (strncmp("/", &path[pos2], 1) == 0)
+            if (strncmp("/", &path[pos1 + pos2], 1) == 0)
                 pos2 += 1;
-            if (strncmp("/", &path[pos2], 1) == 0)
+            if (strncmp("/", &path[pos1 + pos2], 1) == 0)
                 pos2 += 1;
         }
     }
     /* Check whether only hierarchy is specified in path */
     if ((strncasecmp(&path[pos1 + pos2], "HS", 2) == 0 ||
          strncasecmp(&path[pos1 + pos2], "HE", 2) == 0 ||
-         strncasecmp(&path[pos1 + pos2], "HE", 2) == 0 ||
-         strncasecmp(&path[pos1 + pos2], "HP", 2) == 0 ||
-         strncasecmp(&path[pos1 + pos2], "HN", 2) == 0 ||
-         strncasecmp(&path[pos1 + pos2], "HP", 2) == 0)
+         strncasecmp(&path[pos1 + pos2], "HN", 2) == 0)
         && (strlen(path) == pos1 + pos2 + 2 ||
             (strlen(path) == pos1 + pos2 + 3 &&
              path[pos1 + pos2 + 2] == IFAPI_FILE_DELIM_CHAR))){
@@ -931,6 +971,7 @@ get_description(IFAPI_OBJECT *object)
  * @retval TSS2_RC_SUCCESS on success.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
  */
 static TSS2_RC
 create_dirs(const char *supdir, NODE_STR_T *dir_list, mode_t mode)
@@ -1127,6 +1168,7 @@ copy_policy_elements(const TPML_POLICYELEMENTS *from_policy);
  * @param[out] dest The destination policy structure.
  * @retval TSS2_RC_SUCCESS on success.
  * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  */
 static TSS2_RC
 copy_policy(TPMS_POLICY * dest,
@@ -1155,6 +1197,7 @@ error_cleanup:
  * @param[out] dest The destination policy object.
  * @retval TSS2_RC_SUCCESS on success.
  * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  */
 static TSS2_RC
 copy_policy_object(POLICY_OBJECT * dest, const POLICY_OBJECT * src) {
@@ -1216,6 +1259,8 @@ error_cleanup:
  * @param[in] src The policy branches to be copied.
  * @param[out] dest The destination policy branches.
  * @retval TSS2_RC_SUCCESS on success.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  */
 static TPML_POLICYBRANCHES *
 copy_policy_branches(const TPML_POLICYBRANCHES *from_branches)
@@ -1371,6 +1416,7 @@ error:
  * @retval NULL If the policy cannot be copied.
  * @retval TPML_POLICYELEMENTS The copy of the policy list.
  * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  */
 static TPML_POLICYELEMENTS *
 copy_policy_elements(const TPML_POLICYELEMENTS *from_policy)
@@ -1841,7 +1887,7 @@ ifapi_get_nv_start_index(const char *path, TPM2_HANDLE *start_nv_index)
         else if (strcmp(dir_list->next->str, "Endorsement_Certificate") == 0)
             *start_nv_index = 0x01c00000;
         else if (strcmp(dir_list->next->str, "Platform_Certificate") == 0)
-            *start_nv_index = 0x01c80000;
+            *start_nv_index = 0x01c08000;
         else if (strcmp(dir_list->next->str, "Component_OEM") == 0)
             *start_nv_index = 0x01c10000;
         else if (strcmp(dir_list->next->str, "TPM_OEM") == 0)
@@ -1850,7 +1896,7 @@ ifapi_get_nv_start_index(const char *path, TPM2_HANDLE *start_nv_index)
             *start_nv_index = 0x01c30000;
         else if (strcmp(dir_list->next->str, "PC-Client") == 0)
             *start_nv_index = 0x01c40000;
-        else if (strcmp(dir_list->next->str, "Sever") == 0)
+        else if (strcmp(dir_list->next->str, "Server") == 0)
             *start_nv_index = 0x01c50000;
         else if (strcmp(dir_list->next->str, "Virtualized_Platform") == 0)
             *start_nv_index = 0x01c60000;
@@ -1864,6 +1910,115 @@ ifapi_get_nv_start_index(const char *path, TPM2_HANDLE *start_nv_index)
         return TSS2_RC_SUCCESS;
 
     return_error2(TSS2_FAPI_RC_BAD_PATH, "Invalid NV path: %s", path);
+}
+
+/** Check whether NV index is appropriate for NV path.
+ *
+ * The value will be checked  based on e TCG handle registry.
+ *
+ * @param[in]  path The path used for the NV object.
+ * @param[out] nv_index The NV index to be used.
+ *
+ * @retval TSS2_RC_SUCCESS If the index for the path can be determined.
+ * @retval TSS2_FAPI_RC_BAD_PATH If the path is not valid.
+ * @retval TSS2_FAPI_RC_BAD_VALUE If the nv index is not appropriate for the path.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ */
+TSS2_RC
+ifapi_check_nv_index(const char *path, TPM2_HANDLE nv_index)
+{
+    TSS2_RC r;
+    NODE_STR_T *dir_list = split_string(path, IFAPI_FILE_DELIM);
+
+    return_if_null(dir_list, "Out of memory.", TSS2_FAPI_RC_MEMORY);
+    if (dir_list->next && strcmp(dir_list->str, "nv") == 0 && dir_list->next->str) {
+        if (strcmp(dir_list->next->str, "TPM") == 0) {
+            if (nv_index < 0x01000000 || nv_index > 0x013fffff)
+                goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                           "NV TPM handle not in the range 0x01000000:0x013fffff",
+                           error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Platform") == 0) {
+            if (nv_index < 0x01400000 || nv_index > 0x017fffff)
+                goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                           "NV Platform handle not in the range 0x01400000:0x017fffff",
+                           error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Owner") == 0) {
+            if (nv_index < 0x01800000 || nv_index > 0x01bfffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV Owner handle not in the range 0x01800000:0x01bfffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Endorsement_Certificate") == 0) {
+            if (nv_index <  0x01c00000 || nv_index > 0x01c07fff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV Endorsement Certificate handle not in the range "
+                       "0x01c00000:0x01c07fff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Platform_Certificate") == 0) {
+            if (nv_index <  0x01c08000 || nv_index > 0x01c0ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV  Platform Certificate handle not in the range "
+                       "0x01c08000:0x01c0ffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Component_OEM") == 0) {
+            if (nv_index <  0x01c10000 || nv_index > 0x01c1ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV Component OEM handle not in the range "
+                       "0x01c10000:0x01c1ffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "TPM_OEM") == 0) {
+            if (nv_index < 0x01c20000 || nv_index > 0x01c2ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV TPM OEM handle not in the range "
+                       "0x01c20000:0x01c2ffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Platform_OEM") == 0) {
+            if (nv_index < 0x01c30000 || nv_index > 0x01c3ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV Platform OEM handle not in the range "
+                       "0x01c30000:0x01c3ffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "PC-Client") == 0) {
+            if (nv_index < 0x01c40000 || nv_index > 0x01c4ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV PC-Client handle not in the range "
+                       "0x01c40000:0x01c4ffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Server") == 0) {
+            if (nv_index < 0x01c50000 || nv_index > 0x01c5ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV PC-Client handle not in the range "
+                       "0x01c50000:0x01c5ffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Virtualized_Platform") == 0) {
+            if (nv_index < 0x01c60000 || nv_index > 0x01c6ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV PC-Client handle not in the range "
+                       "0x01c60000:0x016cffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "MPWG") == 0) {
+            if (nv_index < 0x01c70000 || nv_index > 0x01c7ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV PC-Client handle not in the range "
+                       "0x01c70000:0x017cffff",
+                       error_cleanup);
+        } else if (strcmp(dir_list->next->str, "Embedded") == 0) {
+            if (nv_index < 0x01c80000 || nv_index >  0x01c8ffff)
+            goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                       "NV PC-Client handle not in the range "
+                       "0x01c80000:0x018cffff",
+                       error_cleanup);
+        } else {
+            goto_error(r, TSS2_FAPI_RC_BAD_PATH, "Invalid nv path: %s", error_cleanup, path);
+        }
+    } else {
+        goto_error(r, TSS2_FAPI_RC_BAD_PATH, "Invalid nv path: %s", error_cleanup, path);
+    }
+    free_string_list(dir_list);
+    return TSS2_RC_SUCCESS;;
+
+ error_cleanup:
+    free_string_list(dir_list);
+    return r;
 }
 
 /** Compute new PCR value from a part of an event list.
@@ -2009,9 +2164,12 @@ ifapi_calculate_pcr_digest(
             goto_if_error(r, "Error serialize policy", error_cleanup);
 
             for (i = 0; i < n_pcrs; i++) {
-                 r = ifapi_extend_vpcr(&pcrs[i].value, pcrs[i].bank, &event);
-                 goto_if_error2(r, "Extending vpcr %"PRIu32, error_cleanup, pcrs[i].pcr);
+                if (pcrs[i].pcr == event.pcr) {
+                    r = ifapi_extend_vpcr(&pcrs[i].value, pcrs[i].bank, &event);
+                    goto_if_error2(r, "Extending vpcr %"PRIu32, error_cleanup, pcrs[i].pcr);
+                }
             }
+            ifapi_cleanup_event(&event);
         }
     }
 
@@ -2155,7 +2313,7 @@ ifapi_filter_pcr_selection_by_index(
 
     if (pcr_selection->count == 0) {
         LOGBLOB_WARNING((void*)pcr_index, pcr_count * sizeof(*pcr_index),
-                        "pcr selection is empty after filtering for pcrlist");
+                        "pcr index %"PRIi32" is not part of the pcr selection", *pcr_index);
         return TSS2_FAPI_RC_BAD_VALUE;
     }
     return TSS2_RC_SUCCESS;
@@ -2211,6 +2369,7 @@ ifapi_compute_policy_digest(
             }
             pcr_selection->pcrSelections[j].hash =
                 pcrs->pcrs[i].hashAlg;
+            pcr_selection->pcrSelections[j].sizeofSelect = 3;
         }
         UINT32 pcrIndex = pcrs->pcrs[i].pcr;
         if (pcrIndex + 1 > max_pcr)

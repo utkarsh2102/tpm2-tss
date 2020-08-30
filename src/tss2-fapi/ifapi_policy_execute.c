@@ -180,6 +180,11 @@ get_policy_digest_idx(TPML_DIGEST_VALUES *digest_values, TPMI_ALG_HASH hashAlg,
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
  *         operation already pending.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
  */
 static TSS2_RC
 execute_policy_pcr(
@@ -303,6 +308,23 @@ execute_policy_duplicate(
  *         operation already pending.
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 static TSS2_RC
 execute_policy_nv(
@@ -379,6 +401,9 @@ execute_policy_nv(
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
  *         is not set.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
  */
 static TSS2_RC
 execute_policy_signed(
@@ -390,7 +415,7 @@ execute_policy_signed(
     size_t offset = 0;
     //TPMT_SIGNATURE signature_tpm;
     size_t signature_size;
-    uint8_t *signature_ossl = NULL;
+    const uint8_t *signature_ossl = NULL;
 
     LOG_TRACE("call");
 
@@ -452,8 +477,6 @@ execute_policy_signed(
                                  &policy->signature_tpm);
         goto_if_error2(r, "Convert der signature into TPM format", cleanup);
 
-        SAFE_FREE(signature_ossl);
-
         TPM2B_PUBLIC inPublic;
         inPublic.size = 0;
         inPublic.publicArea = policy->keyPublic;
@@ -461,7 +484,7 @@ execute_policy_signed(
         /* Prepare the loading of the external public key, user for verificaton. */
         r = Esys_LoadExternal_Async(esys_ctx,
                                     ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
-                                    NULL, &inPublic, TPM2_RH_OWNER);
+                                    NULL, &inPublic, ESYS_TR_RH_OWNER);
         goto_if_error(r, "LoadExternal_Async", cleanup);
         fallthrough;
 
@@ -546,6 +569,15 @@ cleanup:
  *         is not set.
  * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  */
 static TSS2_RC
 execute_policy_authorize(
@@ -584,7 +616,7 @@ execute_policy_authorize(
         public2b.publicArea = policy->keyPublic;
         r = Esys_LoadExternal_Async(esys_ctx,
                                     ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
-                                    NULL,  &public2b, TPM2_RH_OWNER);
+                                    NULL,  &public2b, ESYS_TR_RH_OWNER);
         goto_if_error(r, "LoadExternal_Async", cleanup);
         fallthrough;
 
@@ -696,6 +728,19 @@ cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  */
 static TSS2_RC
 execute_policy_authorize_nv(
@@ -777,6 +822,23 @@ cleanup:
  *         operation already pending.
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 static TSS2_RC
 execute_policy_secret(
@@ -1294,6 +1356,8 @@ execute_policy_nv_written(
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
  *         operation already pending.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
  */
 static TSS2_RC
 execute_policy_or(
@@ -1385,6 +1449,25 @@ execute_policy_action(
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
+ * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
+ *         operation already pending.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 static TSS2_RC
 execute_policy_element(
@@ -1615,6 +1698,9 @@ ifapi_policyeval_execute_prepare(
  *         is not set.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 ifapi_policyeval_execute(

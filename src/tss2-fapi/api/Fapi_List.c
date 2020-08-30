@@ -45,6 +45,9 @@
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
  */
 TSS2_RC
 Fapi_List(
@@ -73,7 +76,7 @@ Fapi_List(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_List_Finish(context, pathList);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "Entities_List");
 
@@ -154,6 +157,11 @@ error_cleanup:
  *         complete. Call this function again later.
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
  */
 TSS2_RC
 Fapi_List_Finish(
@@ -206,8 +214,13 @@ cleanup:
     /* Cleanup any intermediate results and state stored in the context. */
     SAFE_FREE(command->searchPath);
     if (numPaths == 0 && (r == TSS2_RC_SUCCESS)) {
-        LOG_ERROR("Path not found: %s", command->searchPath);
-        r = TSS2_FAPI_RC_PATH_NOT_FOUND;
+        if (command->searchPath && strcmp(command->searchPath,"/") !=0) {
+            LOG_ERROR("Path not found: %s", command->searchPath);
+            r = TSS2_FAPI_RC_NOT_PROVISIONED;
+        } else {
+            LOG_ERROR("FAPI not provisioned.");
+            r = TSS2_FAPI_RC_NOT_PROVISIONED;
+        }
     }
     if (numPaths > 0) {
         for (size_t i = 0; i < numPaths; i++){

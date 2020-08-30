@@ -10,7 +10,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
+#include "tss2_esys.h"
 #include "tss2_fapi.h"
 
 #include "test-fapi.h"
@@ -49,20 +51,21 @@ test_fapi_unseal(FAPI_CONTEXT *context)
     r = Fapi_Provision(context, NULL, NULL, NULL);
     goto_if_error(r, "Error Fapi_Provision", error);
 
-    r = Fapi_CreateSeal(context, "/HS/SRK/mySealObject", "noDa",
+#ifdef PERSISTENT
+    r = Fapi_CreateSeal(context, "/HS/SRK/mySealObject", "noDa,0x81000004",
                         digest.size,
                         "", "",  &digest.buffer[0]);
+#else
+    r = Fapi_CreateSeal(context, "/HS/SRK/mySealObject", "noDa,0x81000004",
+                        digest.size,
+                        "", "",  &digest.buffer[0]);
+#endif
     goto_if_error(r, "Error Fapi_CreateSeal", error);
 
     r = Fapi_Unseal(context, "/HS/SRK/mySealObject", &result,
                     &resultSize);
     goto_if_error(r, "Error Fapi_CreateSeal", error);
-
-    r = Fapi_Delete(context, "/HS/SRK/mySealObject");
-    goto_if_error(r, "Error Fapi_Delete", error);
-
-    r = Fapi_Delete(context, "/HS/SRK");
-    goto_if_error(r, "Error Fapi_Delete", error);
+    assert(result != NULL);
 
     if (resultSize != digest.size ||
             memcmp(result, &digest.buffer[0], resultSize) != 0) {
@@ -71,9 +74,52 @@ test_fapi_unseal(FAPI_CONTEXT *context)
     }
 
     SAFE_FREE(result);
+    r = Fapi_Delete(context, "/HS/SRK/mySealObject");
+    goto_if_error(r, "Error Fapi_Delete", error);
+
+    r = Fapi_CreateSeal(context, "/HS/SRK/myRandomSealObject", "noDa",
+                        128,
+                        "", "",  NULL);
+    goto_if_error(r, "Error Fapi_CreateSeal", error);
+
+    result = NULL;
+    r = Fapi_Unseal(context, "/HS/SRK/myRandomSealObject", &result,
+                    &resultSize);
+    goto_if_error(r, "Error Fapi_CreateSeal", error);
+    assert(result != NULL);
+
+    LOGBLOB_INFO(result, resultSize, "Unsealed random data");
+
+    if (resultSize != 128) {
+        LOG_ERROR("Error: Random data has wrong size.");
+        goto error;
+    }
+
+    /* Check the tests related to SRK deleting. */
+    r = Fapi_Delete(context, "/HS");
+    if (r != TSS2_FAPI_RC_BAD_PATH)
+        goto_if_error(r, "Error Fapi_Delete", error);
+
+    r = Fapi_Delete(context, "/HE");
+    goto_if_error(r, "Error Fapi_Delete", error);
+
+    r = Fapi_Delete(context, "/HN");
+    goto_if_error(r, "Error Fapi_Delete", error);
+
+    r = Fapi_Delete(context, "/LOCKOUT");
+    goto_if_error(r, "Error Fapi_Delete", error);
+
+    r = Fapi_Delete(context, "/HS/SRK/myRandomSealObject");
+    goto_if_error(r, "Error Fapi_Delete", error);
+
+    r = Fapi_Delete(context, "/HS");
+    goto_if_error(r, "Error Fapi_Delete", error);
+
+    SAFE_FREE(result);
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(result);
     return EXIT_FAILURE;
 }

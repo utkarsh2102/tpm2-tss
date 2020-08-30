@@ -39,6 +39,7 @@ typedef struct {
     TPMT_SIG_SCHEME                      signing_scheme;    /**< Signing scheme for the key */
     TPM2B_NAME                                     name;    /**< Name of the key */
     TPMI_YES_NO                               with_auth;    /**< Authorization provided during creation */
+    UINT32                                  reset_count;    /**< The TPM reset count during key creation */
 } IFAPI_KEY;
 
 /** Type for representing a external public key
@@ -55,6 +56,8 @@ typedef struct {
     TPMI_YES_NO                               with_auth;    /**< Authorization provided */
     char                                   *description;    /**< Human readable description of hierarchy */
     TPM2B_DIGEST                             authPolicy;
+    ESYS_TR                                  esysHandle;
+    bool                                      authorized;   /**< Switch whether hiearchy is authorized. */
 } IFAPI_HIERARCHY;
 
 /** Type for representing a FAPI NV object
@@ -113,6 +116,7 @@ typedef struct IFAPI_KEYSTORE {
     char *userdir;
     char *defaultprofile;
     IFAPI_KEY_SEARCH key_search;
+    const char* rel_path;
 } IFAPI_KEYSTORE;
 
 
@@ -143,6 +147,7 @@ typedef struct _IFAPI_OBJECT {
     ESYS_TR                                      handle;    /**< Handle used by ESAPI */
     enum IFAPI_AUTHORIZATION_STATE  authorization_state;    /**< State of object authorization state machine */
     enum IFAPI_IO_STATE                           state;
+    const char                                *rel_path;    /**< The relative path in keystore. */
 
 } IFAPI_OBJECT;
 
@@ -165,6 +170,12 @@ ifapi_keystore_load_finish(
     IFAPI_KEYSTORE *keystore,
     IFAPI_IO *io,
     IFAPI_OBJECT *object);
+
+TSS2_RC
+ifapi_keystore_object_does_not_exist(
+    IFAPI_KEYSTORE *keystore,
+    const char *path,
+    const IFAPI_OBJECT *object);
 
 TSS2_RC
 ifapi_keystore_store_async(
@@ -227,9 +238,20 @@ ifapi_copy_ifapi_key(
     const IFAPI_KEY * src);
 
 TSS2_RC
+ifapi_copy_ifapi_hierarchy(
+    IFAPI_HIERARCHY * dest,
+    const IFAPI_HIERARCHY * src);
+
+TSS2_RC
 ifapi_copy_ifapi_key_object(
     IFAPI_OBJECT * dest,
     const IFAPI_OBJECT * src);
+
+TSS2_RC
+ifapi_copy_ifapi_hierarchy_object(
+    IFAPI_OBJECT * dest,
+    const IFAPI_OBJECT * src);
+
 
 void ifapi_cleanup_ifapi_key(
     IFAPI_KEY * key);

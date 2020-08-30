@@ -13,35 +13,35 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** Test the ESAPI function Esys_HierarchyControl.
+/** Test the ESYS function Esys_HierarchyControl.
  *
  * The owner hierarchy will be disabled and with Esys_CreatePrimary it will
  * be checked whether the owner hierarchy is disabled.
  *
  *\b Note: platform authorization needed.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_CreatePrimary() (M)
  *  - Esys_FlushContext() (M)
  *  - Esys_HierarchyControl() (M)
  *
  * @param[in,out] esys_context The ESYS_CONTEXT.
+ * @param[in] enable The hierarchy to enable or disable.
  * @retval EXIT_FAILURE
  * @retval EXIT_SKIP
  * @retval EXIT_SUCCESS
  */
 int
-test_esys_hierarchy_control(ESYS_CONTEXT * esys_context)
+test_esys_hierarchy_control(ESYS_CONTEXT * esys_context, ESYS_TR enable)
 {
     TSS2_RC r;
 
     ESYS_TR authHandle_handle = ESYS_TR_RH_PLATFORM;
-    TPMI_RH_ENABLES enable = TPM2_RH_OWNER;
     TPMI_YES_NO state = TPM2_NO;
     ESYS_TR primaryHandle = ESYS_TR_NONE;
     int failure_return = EXIT_FAILURE;
@@ -60,7 +60,7 @@ test_esys_hierarchy_control(ESYS_CONTEXT * esys_context)
         enable,
         state);
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         return EXIT_SKIP;
@@ -178,6 +178,14 @@ test_esys_hierarchy_control(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
-    return test_esys_hierarchy_control(esys_context);
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
+    int rc = test_esys_hierarchy_control(esys_context, ESYS_TR_RH_OWNER);
+    if (rc)
+        return rc;
+
+    /*
+     * Test that backwards compat API change is still working, see:
+     *   - https://github.com/tpm2-software/tpm2-tss/issues/1750
+     */
+    return test_esys_hierarchy_control(esys_context, TPM2_RH_OWNER);
 }

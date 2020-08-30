@@ -68,6 +68,9 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_Sign(
@@ -118,7 +121,7 @@ Fapi_Sign(
            through all execution stages / states of this invocation. */
         r = Fapi_Sign_Finish(context, signature, signatureSize, publicKey,
                               certificate);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -252,6 +255,9 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_Sign_Finish(
@@ -287,17 +293,18 @@ Fapi_Sign_Finish(
             /* Perform the signing operation using a helper. */
             r = ifapi_key_sign(context, command->key_object,
                     command->padding, &command->digest, &command->tpm_signature,
-                    publicKey, certificate);
+                    &command->publicKey,
+                    (certificate) ? &command->certificate : NULL);
             return_try_again(r);
             goto_if_error(r, "Fapi sign.", error_cleanup);
 
             /* Convert the TPM datatype signature to something useful for the caller. */
             r = ifapi_tpm_to_fapi_signature(command->key_object,
-                     command->tpm_signature, signature, &resultSignatureSize);
+                     command->tpm_signature, &command->ret_signature, &resultSignatureSize);
             goto_if_error(r, "Create FAPI signature.", error_cleanup);
 
             if (signatureSize)
-                *signatureSize = resultSignatureSize;
+                command->signatureSize = resultSignatureSize;
             fallthrough;
 
         statecase(context->state, KEY_SIGN_CLEANUP)
@@ -305,6 +312,13 @@ Fapi_Sign_Finish(
             r = ifapi_cleanup_session(context);
             try_again_or_error_goto(r, "Cleanup", error_cleanup);
 
+            if (certificate)
+                *certificate = command->certificate;
+            if (signatureSize)
+                *signatureSize = command->signatureSize;
+            if (publicKey)
+                *publicKey = command->publicKey;
+            *signature = command->ret_signature;
             context->state = _FAPI_STATE_INIT;
             break;
 

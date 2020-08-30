@@ -13,12 +13,15 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <assert.h>
+#include <string.h>
 
 #include "tss2_fapi.h"
 
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
+#include "test-fapi.h"
 
 #define SIGN_TEMPLATE  "sign,noDa"
 #define PASSWORD NULL
@@ -52,6 +55,7 @@ test_fapi_key_create_policy_nv_sign(FAPI_CONTEXT *context)
     char *json_policy = NULL;
     uint8_t *signature = NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
     long policy_size;
     char *nvPathOrdinary = "/nv/Owner/myNV";
     uint8_t data_nv[NV_SIZE] = { 1, 2, 3, 4 };
@@ -91,6 +95,11 @@ test_fapi_key_create_policy_nv_sign(FAPI_CONTEXT *context)
     r = Fapi_CreateKey(context, "HS/SRK/mySignKey", SIGN_TEMPLATE,
                        policy_name, PASSWORD);
     goto_if_error(r, "Error Fapi_CreateKey", error);
+
+    r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     size_t signatureSize = 0;
 
     TPM2B_DIGEST digest = {
@@ -103,23 +112,31 @@ test_fapi_key_create_policy_nv_sign(FAPI_CONTEXT *context)
 
     r = Fapi_Sign(context, "HS/SRK/mySignKey", NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
     r = Fapi_Delete(context, nvPathOrdinary);
     goto_if_error(r, "Error Fapi_NV_Undefine", error);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(json_policy);
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(json_policy);
     return EXIT_FAILURE;
 }

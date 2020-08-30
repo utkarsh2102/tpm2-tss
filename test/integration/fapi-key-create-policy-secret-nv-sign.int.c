@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <assert.h>
 
 
 #include "tss2_fapi.h"
@@ -31,15 +32,19 @@
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
-    *auth = strdup(PASSWORD);
-    return_if_null(*auth, "Out of memory.", TSS2_FAPI_RC_MEMORY);
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
+    *auth = PASSWORD;
     return TSS2_RC_SUCCESS;
 }
 
@@ -107,6 +112,7 @@ test_fapi_key_create_policy_secret_nv_sign(FAPI_CONTEXT *context)
 
     uint8_t *signature = NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
 
     r = Fapi_Provision(context, NULL, NULL, NULL);
     goto_if_error(r, "Error Fapi_Provision", error);
@@ -135,6 +141,10 @@ test_fapi_key_create_policy_secret_nv_sign(FAPI_CONTEXT *context)
                        policy_secret, "");
     goto_if_error(r, "Error Fapi_CreateKey", error);
 
+    r = Fapi_SetCertificate(context, sign_key, "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     size_t signatureSize = 0;
 
     TPM2B_DIGEST digest = {
@@ -150,35 +160,50 @@ test_fapi_key_create_policy_secret_nv_sign(FAPI_CONTEXT *context)
     LOG_ERROR("***** START TEST ERROR ******");
     r = Fapi_Sign(context, sign_key, NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
 
     LOG_ERROR("***** END TEST ERROR ******");
 
     if (r == TSS2_RC_SUCCESS)
         goto error;
 
+    assert(signature == NULL);
+    assert(publicKey == NULL);
+    assert(certificate == NULL);
+
     r = Fapi_SetAuthCB(context, auth_callback, "");
     goto_if_error(r, "Error SetPolicyAuthCallback", error);
 
+    signature = NULL;
+    publicKey = NULL;
+    certificate = NULL;
     r = Fapi_Sign(context, sign_key, NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
     r = Fapi_Delete(context, nv_path_auth_object);
     goto_if_error(r, "Error Fapi_NV_Undefine", error);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(json_policy);
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(json_policy);
     return EXIT_FAILURE;
 }

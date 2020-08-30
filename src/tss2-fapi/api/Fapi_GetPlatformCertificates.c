@@ -54,6 +54,14 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 Fapi_GetPlatformCertificates(
@@ -96,7 +104,7 @@ Fapi_GetPlatformCertificates(
            through all execution stages / states of this invocation. */
         r = Fapi_GetPlatformCertificates_Finish(context, certificates,
                 certificatesSize);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -181,6 +189,14 @@ Fapi_GetPlatformCertificates_Async(
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 Fapi_GetPlatformCertificates_Finish(
@@ -225,11 +241,13 @@ Fapi_GetPlatformCertificates_Finish(
                 cert = cert_list;
                 size = 0;
                 while (cert) {
-                    memcpy(&cert[size], cert->object, cert->size);
+                    memcpy(&*(certificates)[size], cert->object, cert->size);
                     size += cert->size;
+                    SAFE_FREE(cert->object);
                     cert = cert->next;
                 }
             } else {
+                *certificates = NULL;
                 if (certificatesSize)
                     *certificatesSize = 0;
                 goto_error(r, TSS2_FAPI_RC_NO_CERT,
@@ -240,8 +258,7 @@ Fapi_GetPlatformCertificates_Finish(
     }
 
     /* Cleanup any intermediate results and state stored in the context. */
-    ifapi_free_object_list(cert_list);
-    SAFE_FREE(context->cmd.Provision.capabilityData);
+    ifapi_free_node_list(cert_list);
     context->state =  _FAPI_STATE_INIT;
     LOG_TRACE("finished");
     return TSS2_RC_SUCCESS;
@@ -249,8 +266,12 @@ Fapi_GetPlatformCertificates_Finish(
 error:
     /* Cleanup any intermediate results and state stored in the context. */
     context->state =  _FAPI_STATE_INIT;
-    ifapi_free_object_list(cert_list);
-    SAFE_FREE(context->cmd.Provision.capabilityData);
+    NODE_OBJECT_T *cert = cert_list;
+    while (cert) {
+        SAFE_FREE(cert->object);
+        cert = cert->next;
+    }
+    ifapi_free_node_list(cert_list);
     SAFE_FREE(*certificates);
     return r;
 }

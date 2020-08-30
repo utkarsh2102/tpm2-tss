@@ -54,6 +54,12 @@
  * @retval TSS2_FAPI_RC_SIGNATURE_VERIFICATION_FAILED if the signature could not
  *         be verified
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 TSS2_RC
 Fapi_Unseal(
@@ -96,7 +102,7 @@ Fapi_Unseal(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_Unseal_Finish(context, data, size);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -146,6 +152,7 @@ Fapi_Unseal_Async(
 
     /* Helpful alias pointers */
     IFAPI_Unseal * command = &context->cmd.Unseal;
+    memset(command, 0 ,sizeof(IFAPI_Unseal));
 
     /* Reset all context-internal session state information. */
     r = ifapi_session_init(context);
@@ -192,6 +199,14 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_SIGNATURE_VERIFICATION_FAILED if the signature could not
  *         be verified
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 TSS2_RC
 Fapi_Unseal_Finish(
@@ -240,15 +255,26 @@ Fapi_Unseal_Finish(
             goto_if_error(r, "Unseal_Finish", error_cleanup);
 
             /* Flush the used key from the TPM. */
-            r = Esys_FlushContext_Async(context->esys, command->object->handle);
-            goto_if_error(r, "Error Esys Flush ", error_cleanup);
+            if (!command->object->misc.key.persistent_handle) {
+                r = Esys_FlushContext_Async(context->esys, command->object->handle);
+                goto_if_error(r, "Error Esys Flush ", error_cleanup);
+            }
 
             fallthrough;
 
         statecase(context->state, UNSEAL_WAIT_FOR_FLUSH);
-            r = Esys_FlushContext_Finish(context->esys);
-            return_try_again(r);
-            goto_if_error(r, "Unseal_Flush", error_cleanup);
+            if (!command->object->misc.key.persistent_handle) {
+                r = Esys_FlushContext_Finish(context->esys);
+                return_try_again(r);
+                goto_if_error(r, "Unseal_Flush", error_cleanup);
+            }
+
+            fallthrough;
+
+        statecase(context->state, UNSEAL_CLEANUP)
+            /* Cleanup the session used for authentication. */
+            r = ifapi_cleanup_session(context);
+            try_again_or_error_goto(r, "Cleanup", error_cleanup);
 
             /* Return the data as requested by the caller.
                Duplicate the unseal_data as necessary. */
@@ -263,13 +289,6 @@ Fapi_Unseal_Finish(
             }
             SAFE_FREE(command->unseal_data);
 
-            fallthrough;
-
-        statecase(context->state, UNSEAL_CLEANUP)
-            /* Cleanup the session used for authentication. */
-            r = ifapi_cleanup_session(context);
-            try_again_or_error_goto(r, "Cleanup", error_cleanup);
-
             context->state = _FAPI_STATE_INIT;
             break;
 
@@ -278,6 +297,8 @@ Fapi_Unseal_Finish(
 
 error_cleanup:
     /* Cleanup any intermediate results and state stored in the context. */
+    if (r)
+        SAFE_FREE(command->unseal_data);
     ifapi_cleanup_ifapi_object(command->object);
     ifapi_cleanup_ifapi_object(&context->loadKey.auth_object);
     ifapi_cleanup_ifapi_object(context->loadKey.key_object);

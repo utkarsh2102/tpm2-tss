@@ -10,6 +10,8 @@
 #define EXIT_SKIP 77
 #define EXIT_ERROR 99
 
+#define ASSERT_SIZE 10 /* sanity check value for string outputs of Fapi commands  */
+
 #define goto_error_if_not_failed(rc,msg,label)                          \
     if (rc == TSS2_RC_SUCCESS) {                                        \
         LOG_ERROR("Error %s (%x) in Line %i: \n", msg, __LINE__, rc);   \
@@ -32,4 +34,7 @@ pcr_reset(FAPI_CONTEXT *context, UINT32 pcr);
  * A successful test will return 0, any other value indicates failure.
  */
 
+
 int test_invoke_fapi(FAPI_CONTEXT * fapi_context);
+
+int init_fapi(char *fapi_profile, FAPI_CONTEXT **fapi_context);

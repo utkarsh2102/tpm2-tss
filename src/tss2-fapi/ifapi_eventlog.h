@@ -84,15 +84,15 @@ ifapi_eventlog_get_finish(
     char **log);
 
 TSS2_RC
-ifapi_eventlog_append_async(
+ifapi_eventlog_append_check(
     IFAPI_EVENTLOG *eventlog,
-    IFAPI_IO *io,
-    const IFAPI_EVENT *event);
+    IFAPI_IO *io);
 
 TSS2_RC
 ifapi_eventlog_append_finish(
     IFAPI_EVENTLOG *eventlog,
-    IFAPI_IO *io);
+    IFAPI_IO *io,
+    const IFAPI_EVENT *event);
 
 void
 ifapi_cleanup_event(

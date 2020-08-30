@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -30,15 +31,19 @@
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
-    *auth = strdup(PASSWORD);
-    return_if_null(*auth, "Out of memory.", TSS2_FAPI_RC_MEMORY);
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
+    *auth = PASSWORD;
     return TSS2_RC_SUCCESS;
 }
 #define SIGN_TEMPLATE  "sign,noDa"
@@ -99,6 +104,7 @@ test_fapi_key_create_policies_sign(FAPI_CONTEXT *context)
     FILE *stream = NULL;
     uint8_t *signature =NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
     char *json_policy = NULL;
     long policy_size;
 
@@ -134,6 +140,11 @@ test_fapi_key_create_policies_sign(FAPI_CONTEXT *context)
     r = Fapi_CreateKey(context, "HS/SRK/mySignKey", SIGN_TEMPLATE,
                        policy_name, PASSWORD);
     goto_if_error(r, "Error Fapi_CreateKey", error);
+
+    r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     size_t signatureSize = 0;
 
     TPM2B_DIGEST digest = {
@@ -149,10 +160,10 @@ test_fapi_key_create_policies_sign(FAPI_CONTEXT *context)
 
     r = Fapi_Sign(context, "HS/SRK/mySignKey", NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
 
 #if defined(TEST_POLICY_PHYSICAL_PRESENCE)
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_PP) {
+    if (number_rc(r) == TPM2_RC_PP) {
         LOG_WARNING("Test requires physical presence.");
         goto skip;
     } else if (r == TPM2_RC_COMMAND_CODE) {
@@ -161,39 +172,47 @@ test_fapi_key_create_policies_sign(FAPI_CONTEXT *context)
     }
 #endif /* TEST_POLICY_PHYSICAL_PRESENCE */
     goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
     r = Fapi_Delete(context, "/HS/SRK/mySignKey");
     goto_if_error(r, "Error Fapi_Delete", error);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(json_policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     return EXIT_SUCCESS;
 
 #if defined(TEST_POLICY_PHYSICAL_PRESENCE)
     r = Fapi_Delete(context, "/HS/SRK/mySignKey");
     goto_if_error(r, "Error Fapi_Delete", error);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
 skip:
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
     SAFE_FREE(json_policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     return EXIT_SKIP;
 #endif /* TEST_POLICY_PHYSICAL_PRESENCE */
 
 error:
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
 
     SAFE_FREE(json_policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     return EXIT_FAILURE;
 }
 

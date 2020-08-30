@@ -54,6 +54,9 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_PcrExtend(
@@ -97,7 +100,7 @@ Fapi_PcrExtend(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_PcrExtend_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -223,6 +226,9 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_PcrExtend_Finish(
@@ -244,9 +250,33 @@ Fapi_PcrExtend_Finish(
 
     switch (context->state) {
         statecase(context->state, PCR_EXTEND_WAIT_FOR_GET_CAP);
+            command->event_log_file = NULL;
             r = Esys_GetCapability_Finish(context->esys, &moreData, capabilityData);
             return_try_again(r);
             goto_if_error_reset_state(r, "GetCapablity_Finish", error_cleanup);
+
+            /* Construct the filename for the eventlog file */
+            r = ifapi_asprintf(&command->event_log_file, "%s/%s%i",
+                               context->eventlog.log_dir, IFAPI_PCR_LOG_FILE, command->pcrIndex);
+            return_if_error(r, "Out of memory.");
+
+            /* Check wheter the event log has to be read. */
+            if (ifapi_io_path_exists(command->event_log_file)) {
+                r = ifapi_io_read_async(&context->io, command->event_log_file);
+                goto_if_error_reset_state(r, "Read event log", error_cleanup);
+                context->eventlog.state = IFAPI_EVENTLOG_STATE_READING;
+            } else {
+                context->eventlog.state = IFAPI_EVENTLOG_STATE_APPENDING;
+                SAFE_FREE(command->event_log_file);
+            }
+
+            fallthrough;
+
+        statecase(context->state,PCR_EXTEND_READ_EVENT_LOG);
+            /* Check whether log file contains valid json. */
+            r = ifapi_eventlog_append_check(&context->eventlog, &context->io);
+            return_try_again(r);
+            goto_if_error(r, "ifapi_eventlog_append_check", error_cleanup);
 
             /* Prepare session used for integrity protecting the PCR Event operation. */
             r = ifapi_get_sessions_async(context,
@@ -287,18 +317,13 @@ Fapi_PcrExtend_Finish(
             } else {
                 subEvent->event = NULL;
             }
-
-            /* Append the eventLog entry to the event log. */
-            r = ifapi_eventlog_append_async(&context->eventlog, &context->io,
-                                            &command->pcr_event);
-            goto_if_error(r, "Error ifapi_eventlog_append_async", error_cleanup);
-
             fallthrough;
 
         statecase(context->state, PCR_EXTEND_APPEND_EVENT_LOG);
-            r = ifapi_eventlog_append_finish(&context->eventlog, &context->io);
+            r = ifapi_eventlog_append_finish(&context->eventlog, &context->io,
+                                             &command->pcr_event);
             return_try_again(r);
-            goto_if_error(r, "ifapi_eventlog_append_async", error_cleanup);
+            goto_if_error(r, "ifapi_eventlog_append_finish", error_cleanup);
 
             SAFE_FREE(command->event_digests);
             fallthrough;
@@ -316,6 +341,7 @@ Fapi_PcrExtend_Finish(
 
 error_cleanup:
     /* Cleanup any intermediate results and state stored in the context. */
+    SAFE_FREE(command->event_log_file);
     SAFE_FREE(*capabilityData);
     SAFE_FREE(command->event_digests);
     SAFE_FREE(command->logData);

@@ -60,7 +60,7 @@ ifapi_flush_object(FAPI_CONTEXT *context, ESYS_TR handle)
 
     statecase(context->flush_object_state, WAIT_FOR_FLUSH);
         r = Esys_FlushContext_Finish(context->esys);
-        if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
+        if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
             return TSS2_FAPI_RC_TRY_AGAIN;
 
         return_if_error(r, "FlushContext");
@@ -179,6 +179,7 @@ push_object_with_size_to_list(void *object, size_t size, NODE_OBJECT_T **object_
     return_if_error(r, "Push object with size.");
 
     (*object_list)->size = size;
+
     return TSS2_RC_SUCCESS;
 }
 
@@ -201,6 +202,8 @@ push_object_with_size_to_list(void *object, size_t size, NODE_OBJECT_T **object_
  * @retval TSS2_RC_SUCCESS: If the initialization was successful.
  * @retval TSS2_FAPI_RC_BAD_VALUE If an invalid path was passed.
  * @retval TSS2_FAPI_RC_MEMORY: if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 static TSS2_RC
 init_explicit_key_path(
@@ -230,6 +233,7 @@ init_explicit_key_path(
     } else {
         profile = context_profile;
     }
+    /* Create the initial node of the linked list. */
     *result = init_string_list(profile);
     if (*result == NULL) {
         free_string_list(*list_node1);
@@ -237,46 +241,68 @@ init_explicit_key_path(
         return TSS2_FAPI_RC_MEMORY;
     }
     if (list_node == NULL) {
-        /* extend default hierarchy. */
+        /* Storage hierarchy will be used as default. */
         hierarchy = "HS";
     } else {
-        if (strcmp(list_node->str, "HS") == 0 ||
-                strcmp(list_node->str, "HE") == 0 ||
-                strcmp(list_node->str, "HP") == 0 ||
-                strcmp(list_node->str, "HN") == 0 ||
-                strcmp(list_node->str, "HP") == 0) {
+        if (strcmp(list_node->str, "HN") == 0) {
             hierarchy = list_node->str;
             list_node = list_node->next;
-        }
-        /* Extend hierarchy. */
-        else if (strcmp(list_node->str, "EK") == 0) {
+        } else if (strcmp(list_node->str, "HS") == 0 ||
+                   strcmp(list_node->str, "HE") == 0 ||
+                   strcmp(list_node->str, "HN") == 0) {
+            hierarchy = list_node->str;
+            list_node = list_node->next;
+        } else if (strcmp(list_node->str, "EK") == 0) {
+            /* The hierarchy for an endorsement key will be added. */
             hierarchy = "HE";
-        } else if (list_node->next != NULL &&
-                   (strcmp(list_node->str, "SRK") == 0 ||
-                    strcmp(list_node->str, "SDK") == 0 ||
-                    strcmp(list_node->str, "UNK") == 0 ||
-                    strcmp(list_node->str, "UDK") == 0)) {
+        } else if (list_node->str != NULL &&
+                   strcmp(list_node->str, "SRK") == 0) {
+            /* The storage hierachy will be added. */
             hierarchy = "HS";
         } else {
-            hierarchy = "HS";
+            LOG_ERROR("Hierarchy cannot be determined.");
+            r = TSS2_FAPI_RC_BAD_PATH;
+            goto error;
         }
     }
-
-    /* Extend the current result. */
+    /* Add the used hierarchy to the linked list. */
     if (!add_string_to_list(*result, hierarchy)) {
         LOG_ERROR("Out of memory");
         r = TSS2_FAPI_RC_MEMORY;
         goto error;
     }
     if (list_node == NULL) {
-        goto_error(r, TSS2_FAPI_RC_BAD_VALUE, "Explicit path can't be determined.",
+        goto_error(r, TSS2_FAPI_RC_BAD_PATH, "Explicit path can't be determined.",
                    error);
     }
+
+    /* Add the primary directory to the linked list. */
     if (!add_string_to_list(*result, list_node->str)) {
         LOG_ERROR("Out of memory");
         r = TSS2_FAPI_RC_MEMORY;
         goto error;
     }
+
+    if (strcmp(hierarchy, "HS") == 0 && strcmp(list_node->str, "EK") == 0) {
+        LOG_ERROR("Key EK cannot be create in the storage hierarchy.");
+        r = TSS2_FAPI_RC_BAD_PATH;
+        goto error;
+    }
+
+    if (strcmp(hierarchy, "HE") == 0 && strcmp(list_node->str, "SRK") == 0) {
+        LOG_ERROR("Key EK cannot be create in the endorsement hierarchy.");
+        r = TSS2_FAPI_RC_BAD_PATH;
+        goto error;
+    }
+
+    if (strcmp(hierarchy, "HN") == 0 &&
+        (strcmp(list_node->str, "SRK") == 0 || strcmp(list_node->str, "EK") == 0)) {
+        LOG_ERROR("Key EK and SRK cannot be created in NULL hierarchy.");
+        r = TSS2_FAPI_RC_BAD_PATH;
+        goto error;
+    }
+
+    /* Return the rest of the path. */
     *current_list_node = list_node->next;
     return TSS2_RC_SUCCESS;
 
@@ -306,6 +332,36 @@ pop_object_from_list(FAPI_CONTEXT *context, NODE_OBJECT_T **object_list)
     return TSS2_RC_SUCCESS;
 }
 
+/** Get relative path of a FAPI object.
+ *
+ * @param[in] object The internal FAPI object.
+ *
+ * @retval The relative path of the object.
+ * @retval NULL if no path is available.
+ */
+const char *
+ifapi_get_object_path(IFAPI_OBJECT *object)
+{
+    if (object->rel_path)
+        return object->rel_path;
+
+    /* For hierarchies the path might not be set during reading
+       from keystore. */
+    if (object->objectType == IFAPI_HIERARCHY_OBJ) {
+        switch (object->handle) {
+        case ESYS_TR_RH_NULL:
+            return "/HN";
+        case ESYS_TR_RH_OWNER:
+            return "/HS";
+        case ESYS_TR_RH_ENDORSEMENT:
+            return "/HE";
+        case ESYS_TR_RH_LOCKOUT:
+            return  "/LOCKOUT";
+        }
+    }
+    return NULL;
+}
+
 /** Set authorization value for a FAPI object.
  *
  * The callback which provides the auth value must be defined.
@@ -326,33 +382,33 @@ ifapi_set_auth(
     const char *description)
 {
     TSS2_RC r;
-    char *auth = NULL;
+    const char *auth = NULL;
     TPM2B_AUTH authValue = {.size = 0,.buffer = {0} };
-    char *obj_description;
+    const char *obj_path;
 
-    obj_description = get_description(auth_object);
-
-    if (obj_description)
-        description = obj_description;
+    obj_path = ifapi_get_object_path(auth_object);
 
     /* Check whether callback is defined. */
     if (context->callbacks.auth) {
-        r = context->callbacks.auth(context, description, &auth,
-                                        context->callbacks.authData);
+        r = context->callbacks.auth(obj_path, description, &auth,
+                                    context->callbacks.authData);
         return_if_error(r, "policyAuthCallback");
         if (auth != NULL) {
             authValue.size = strlen(auth);
             memcpy(&authValue.buffer[0], auth, authValue.size);
         }
-        SAFE_FREE(auth);
+
         /* Store auth value in the ESYS object. */
         r = Esys_TR_SetAuth(context->esys, auth_object->handle, &authValue);
         return_if_error(r, "Set auth value.");
 
+        if (auth_object->objectType == IFAPI_HIERARCHY_OBJ)
+            auth_object->misc.hierarchy.authorized = true;
+
         return TSS2_RC_SUCCESS;
     }
     SAFE_FREE(auth);
-    return TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN;
+    return_error( TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN, "Authorization callback not defined.");
 }
 
 /** Preparation for getting a free handle after a start handle number.
@@ -397,7 +453,7 @@ ifapi_get_free_handle_finish(FAPI_CONTEXT *fctx, TPM2_HANDLE *handle,
     TSS2_RC r = Esys_GetCapability_Finish(fctx->esys,
                                           &moreData, &capabilityData);
 
-    if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
+    if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
         return TSS2_FAPI_RC_TRY_AGAIN;
 
     return_if_error(r, "GetCapability");
@@ -434,6 +490,10 @@ ifapi_get_free_handle_finish(FAPI_CONTEXT *fctx, TPM2_HANDLE *handle,
  * @retval TSS2_FAPI_RC_MEMORY if memory could not be allocated.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 static TSS2_RC
 get_explicit_key_path(
@@ -491,14 +551,17 @@ error:
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_init_primary_async(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype)
 {
     TSS2_RC r;
-    IFAPI_OBJECT *hierarchy;
-    hierarchy = &context->cmd.Provision.hierarchy;
     TPMS_POLICY *policy;
+
+    r = TSS2_RC_SUCCESS;
 
     if (ktype == TSS2_EK) {
         /* Values set according to EK credential profile. */
@@ -508,11 +571,9 @@ ifapi_init_primary_async(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype)
             context->cmd.Provision.public_templ.public.publicArea.unique.ecc.x.size = 32;
             context->cmd.Provision.public_templ.public.publicArea.unique.ecc.y.size = 32;
         }
-        ifapi_init_hierarchy_object(hierarchy, ESYS_TR_RH_ENDORSEMENT);
         policy = context->profiles.default_profile.ek_policy;
     } else if (ktype == TSS2_SRK) {
         policy = context->profiles.default_profile.srk_policy;
-        ifapi_init_hierarchy_object(hierarchy, ESYS_TR_RH_OWNER);
     } else {
         return_error(TSS2_FAPI_RC_BAD_VALUE,
                      "Invalid key type. Only EK or SRK allowed");
@@ -541,19 +602,13 @@ ifapi_init_primary_async(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype)
                context->cmd.Provision.hash_size);
     }
     context->createPrimary.pkey_object.policy = policy;
+    context->createPrimary.pkey_object.objectType = IFAPI_KEY_OBJ;
 
     memset(&context->cmd.Provision.inSensitive, 0, sizeof(TPM2B_SENSITIVE_CREATE));
     memset(&context->cmd.Provision.outsideInfo, 0, sizeof(TPM2B_DATA));
     memset(&context->cmd.Provision.creationPCR, 0, sizeof(TPML_PCR_SELECTION));
 
-    r = Esys_CreatePrimary_Async(context->esys, hierarchy->handle,
-                                 (context->session1 == ESYS_TR_NONE) ?
-                                 ESYS_TR_PASSWORD : context->session1,
-                                 ESYS_TR_NONE, ESYS_TR_NONE,
-                                 &context->cmd.Provision.inSensitive,
-                                 &context->cmd.Provision.public_templ.public,
-                                 &context->cmd.Provision.outsideInfo,
-                                 &context->cmd.Provision.creationPCR);
+    context->primary_state = PRIMARY_AUTHORIZE_HIERARCHY;
     return r;
 }
 
@@ -565,6 +620,7 @@ ifapi_init_primary_async(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype)
  *
  * @param[in] context The FAPI_CONTEXT.
  * @param[in] ktype The type of key TSS2_EK or TSS2_SRK.
+ * @param[in,out] hierarchy The hiearchy used for primary creation.
  *
  * @retval TSS2_RC_SUCCESS on success.
  * @retval TSS2_FAPI_RC_TRY_AGAIN if the execution cannot be completed.
@@ -575,95 +631,137 @@ ifapi_init_primary_async(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype)
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
+ * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
+ *         operation already pending.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 TSS2_RC
-ifapi_init_primary_finish(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype)
+ifapi_init_primary_finish(FAPI_CONTEXT *context, TSS2_KEY_TYPE ktype, IFAPI_OBJECT *hierarchy)
 {
     TSS2_RC r;
     ESYS_TR primaryHandle;
-    IFAPI_OBJECT *hierarchy;
     TPM2B_PUBLIC *outPublic = NULL;
     TPM2B_CREATION_DATA *creationData = NULL;
     TPM2B_DIGEST *creationHash = NULL;
     TPMT_TK_CREATION *creationTicket = NULL;
     IFAPI_KEY *pkey = &context->createPrimary.pkey_object.misc.key;
     NODE_STR_T *k_sub_path = NULL;
+    ESYS_TR auth_session;
 
-    hierarchy = &context->cmd.Provision.hierarchy;
-
-    r = Esys_CreatePrimary_Finish(context->esys,
-                                  &primaryHandle, &outPublic, &creationData, &creationHash,
-                                  &creationTicket);
-    if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
-        return TSS2_FAPI_RC_TRY_AGAIN;
-
-    /* Retry with authorization callback after trial with null auth */
-    if ((((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH))
-            && (context->state == PROVISION_AUTH_EK_NO_AUTH_SENT ||
-                context->state == PROVISION_AUTH_SRK_NO_AUTH_SENT)) {
-        r = ifapi_set_auth(context, hierarchy, "CreatePrimary");
-        goto_if_error_reset_state(r, "CreatePrimary", error_cleanup);
-
+    switch (context->primary_state) {
+    statecase(context->primary_state, PRIMARY_AUTHORIZE_HIERARCHY);
+        if (hierarchy->misc.hierarchy.with_auth == TPM2_YES || policy_digest_size(hierarchy)) {
+            r = ifapi_authorize_object(context, hierarchy, &auth_session);
+            FAPI_SYNC(r, "Authorize hierarchy.", error_cleanup);
+        } else {
+            auth_session = context->session1;
+        }
         r = Esys_CreatePrimary_Async(context->esys, hierarchy->handle,
-                                     ESYS_TR_PASSWORD, ESYS_TR_NONE, ESYS_TR_NONE,
+                                     (auth_session == ESYS_TR_NONE) ?
+                                     ESYS_TR_PASSWORD : auth_session,
+                                     ESYS_TR_NONE, ESYS_TR_NONE,
                                      &context->cmd.Provision.inSensitive,
-                                     &context->cmd.Provision.public,
+                                     &context->cmd.Provision.public_templ.public,
                                      &context->cmd.Provision.outsideInfo,
                                      &context->cmd.Provision.creationPCR);
         goto_if_error_reset_state(r, "CreatePrimary", error_cleanup);
 
-        if (ktype == TSS2_EK)
-            context->state = PROVISION_AUTH_EK_AUTH_SENT;
-        else
-            context->state = PROVISION_AUTH_SRK_AUTH_SENT;
-        return TSS2_FAPI_RC_TRY_AGAIN;
+        fallthrough;
 
-    } else {
-        goto_if_error_reset_state(r, "FAPI Provision", error_cleanup);
-    }
-    /* Set EK or SRK handle in context. */
-    if (ktype == TSS2_EK) {
-        context->ek_handle = primaryHandle;
-    } else if (ktype == TSS2_SRK) {
-        context->srk_handle = primaryHandle;
-    } else {
-        return_error(TSS2_FAPI_RC_BAD_VALUE,
-                     "Invalid key type. Only EK or SRK allowed");
-    }
+    statecase(context->primary_state, PRIMARY_WAIT_FOR_PRIMARY);
+        r = Esys_CreatePrimary_Finish(context->esys,
+                                      &primaryHandle, &outPublic, &creationData, &creationHash,
+                                      &creationTicket);
+        if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
+            return TSS2_FAPI_RC_TRY_AGAIN;
 
-    /* Prepare serialization of pkey to key store. */
+        /* Retry with authorization callback after trial with null auth */
+        if (number_rc(r) == TPM2_RC_BAD_AUTH
+            && hierarchy->misc.hierarchy.with_auth == TPM2_NO) {
+            char *description;
+            r = ifapi_get_description(hierarchy, &description);
+            return_if_error(r, "Get description");
 
-    SAFE_FREE(pkey->serialization.buffer);
-    r = Esys_TR_Serialize(context->esys, primaryHandle, &pkey->serialization.buffer,
+            r = ifapi_set_auth(context, hierarchy, description);
+            SAFE_FREE(description);
+            goto_if_error_reset_state(r, "CreatePrimary", error_cleanup);
+
+            r = Esys_CreatePrimary_Async(context->esys, hierarchy->handle,
+                                         (context->session1 == ESYS_TR_NONE) ?
+                                         ESYS_TR_PASSWORD : context->session1,
+                                         ESYS_TR_NONE, ESYS_TR_NONE,
+                                         &context->cmd.Provision.inSensitive,
+                                         &context->cmd.Provision.public_templ.public,
+                                         &context->cmd.Provision.outsideInfo,
+                                         &context->cmd.Provision.creationPCR);
+            goto_if_error_reset_state(r, "CreatePrimary", error_cleanup);
+
+            if (ktype == TSS2_EK) {
+                context->state = PROVISION_AUTH_EK_AUTH_SENT;
+            } else {
+                context->state = PROVISION_AUTH_SRK_AUTH_SENT;
+            }
+            hierarchy->misc.hierarchy.with_auth = TPM2_YES;
+            return TSS2_FAPI_RC_TRY_AGAIN;
+
+        } else {
+            goto_if_error_reset_state(r, "FAPI Provision", error_cleanup);
+        }
+        /* Set EK or SRK handle in context. */
+        if (ktype == TSS2_EK) {
+            context->ek_handle = primaryHandle;
+        } else if (ktype == TSS2_SRK) {
+            context->srk_handle = primaryHandle;
+        } else {
+            return_error(TSS2_FAPI_RC_BAD_VALUE,
+                         "Invalid key type. Only EK or SRK allowed");
+        }
+
+        /* Prepare serialization of pkey to key store. */
+
+        SAFE_FREE(pkey->serialization.buffer);
+        r = Esys_TR_Serialize(context->esys, primaryHandle, &pkey->serialization.buffer,
                           &pkey->serialization.size);
-    goto_if_error(r, "Error serialize esys object", error_cleanup);
+        goto_if_error(r, "Error serialize esys object", error_cleanup);
 
-    r = ifapi_get_name(&outPublic->publicArea, &pkey->name);
-    goto_if_error(r, "Get primary name", error_cleanup);
+        r = ifapi_get_name(&outPublic->publicArea, &pkey->name);
+        goto_if_error(r, "Get primary name", error_cleanup);
 
-    pkey->public = *outPublic;
-    pkey->policyInstance = NULL;
-    pkey->creationData = *creationData;
-    pkey->creationTicket = *creationTicket;
-    pkey->description = NULL;
-    pkey->certificate = NULL;
+        pkey->public = *outPublic;
+        pkey->policyInstance = NULL;
+        pkey->creationData = *creationData;
+        pkey->creationTicket = *creationTicket;
+        pkey->description = NULL;
+        pkey->certificate = NULL;
 
-    /* Cleanup unused information */
-    SAFE_FREE(outPublic);
-    SAFE_FREE(creationData);
-    SAFE_FREE(creationHash);
-    SAFE_FREE(creationTicket);
+        /* Cleanup unused information */
+        SAFE_FREE(outPublic);
+        SAFE_FREE(creationData);
+        SAFE_FREE(creationHash);
+        SAFE_FREE(creationTicket);
 
-    if (pkey->public.publicArea.type == TPM2_ALG_RSA)
-        pkey->signing_scheme = context->profiles.default_profile.rsa_signing_scheme;
-    else
-        pkey->signing_scheme = context->profiles.default_profile.ecc_signing_scheme;
-    context->createPrimary.pkey_object.handle = primaryHandle;
-    SAFE_FREE(pkey->serialization.buffer);
-    ifapi_cleanup_ifapi_object(&context->createPrimary.pkey_object);
-    return TSS2_RC_SUCCESS;
+        if (pkey->public.publicArea.type == TPM2_ALG_RSA)
+            pkey->signing_scheme = context->profiles.default_profile.rsa_signing_scheme;
+        else
+            pkey->signing_scheme = context->profiles.default_profile.ecc_signing_scheme;
+        context->createPrimary.pkey_object.handle = primaryHandle;
+        SAFE_FREE(pkey->serialization.buffer);
+        ifapi_cleanup_ifapi_object(&context->createPrimary.pkey_object);
+        return TSS2_RC_SUCCESS;
+
+
+    statecasedefault(context->primary_state);
+    }
 
 error_cleanup:
+    ifapi_cleanup_ifapi_object(&context->createPrimary.pkey_object);
     free_string_list(k_sub_path);
     SAFE_FREE(pkey->serialization.buffer);
     ifapi_cleanup_ifapi_object(&context->createPrimary.pkey_object);
@@ -684,6 +782,10 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if the file does not exist.
  * @retval TSS2_FAPI_RC_MEMORY if memory could not be allocated for path names.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_load_primary_async(FAPI_CONTEXT *context, char *path)
@@ -728,6 +830,9 @@ ifapi_load_primary_async(FAPI_CONTEXT *context, char *path)
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
@@ -741,6 +846,8 @@ ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
     TPMT_TK_CREATION *creationTicket = NULL;
     IFAPI_OBJECT *pkey_object = &context->createPrimary.pkey_object;
     IFAPI_KEY *pkey = &context->createPrimary.pkey_object.misc.key;
+    TPMS_CAPABILITY_DATA **capabilityData = &context->createPrimary.capabilityData;
+    TPMI_YES_NO moreData;
     ESYS_TR auth_session;
 
     LOG_TRACE("call");
@@ -764,10 +871,11 @@ ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
             } else {
                 context->srk_persistent = true;
             }
-            /* Persistent handle will be used. */
-            *handle = pkey_object->handle;
-            break;
-        } else {
+            /* It has to be checked whether the persistent handle exists. */
+            context->primary_state = PRIMARY_VERIFY_PERSISTENT;
+            return TSS2_FAPI_RC_TRY_AGAIN;
+        }
+        else {
             if (pkey->creationTicket.hierarchy == TPM2_RH_EK) {
                 context->ek_persistent = false;
             } else {
@@ -781,6 +889,9 @@ ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
         if (pkey->creationTicket.hierarchy == TPM2_RH_EK) {
             r = ifapi_keystore_load_async(&context->keystore, &context->io, "/HE");
             return_if_error2(r, "Could not open hierarchy /HE");
+        } else if (pkey->creationTicket.hierarchy == TPM2_RH_NULL) {
+            r = ifapi_keystore_load_async(&context->keystore, &context->io, "/HN");
+            return_if_error2(r, "Could not open hierarchy /HN");
         } else {
             r = ifapi_keystore_load_async(&context->keystore, &context->io, "/HS");
             return_if_error2(r, "Could not open hierarchy /HS");
@@ -797,6 +908,8 @@ ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
 
         if (pkey->creationTicket.hierarchy == TPM2_RH_EK) {
             hierarchy->handle = ESYS_TR_RH_ENDORSEMENT;
+        } else if (pkey->creationTicket.hierarchy == TPM2_RH_NULL) {
+            hierarchy->handle = ESYS_TR_RH_NULL;
         } else {
             hierarchy->handle = ESYS_TR_RH_OWNER;
         }
@@ -838,6 +951,35 @@ ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
         context->primary_state = PRIMARY_INIT;
         break;
 
+    statecase(context->primary_state, PRIMARY_VERIFY_PERSISTENT);
+        /* Check the TPM capabilities for the persistent handle. */
+        r = Esys_GetCapability_Async(context->esys,
+                                     ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
+                                     TPM2_CAP_HANDLES,
+                                     pkey_object->misc.key.persistent_handle, 1);
+        goto_if_error(r, "Esys_GetCapability_Async", error_cleanup);
+        fallthrough;
+
+    statecase(context->primary_state, PRIMARY_GET_CAP);
+        r = Esys_GetCapability_Finish(context->esys, &moreData, capabilityData);
+        return_try_again(r);
+        goto_if_error_reset_state(r, "GetCapablity_Finish", error_cleanup);
+
+        /* Check whether the persistent handle exists. */
+        if ((*capabilityData)->data.handles.count != 0 &&
+            (*capabilityData)->data.handles.handle[0] ==
+            pkey_object->misc.key.persistent_handle) {
+            /* Persistent handle found. */
+            SAFE_FREE(*capabilityData);
+            *handle = pkey_object->handle;
+            break;
+        }
+        goto_error(r, TSS2_FAPI_RC_KEY_NOT_FOUND ,
+                   "The persistent handle 0x%x does not exist. "
+                   "The TPM state and the keystore state do not match."
+,                   error_cleanup, pkey_object->misc.key.persistent_handle);
+        fallthrough;
+
     statecasedefault(context->primary_state);
     }
     SAFE_FREE(outPublic);
@@ -848,6 +990,7 @@ ifapi_load_primary_finish(FAPI_CONTEXT *context, ESYS_TR *handle)
     return TSS2_RC_SUCCESS;
 
 error_cleanup:
+    SAFE_FREE(*capabilityData);
     SAFE_FREE(outPublic);
     SAFE_FREE(creationData);
     SAFE_FREE(creationHash);
@@ -1067,6 +1210,10 @@ ifapi_primary_clean(FAPI_CONTEXT *context)
  *         the function.
  * @retval TSS2_FAPI_RC_IO_ERROR if an error occurred while accessing the
  *         object store.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_get_sessions_async(FAPI_CONTEXT *context,
@@ -1089,7 +1236,7 @@ ifapi_get_sessions_async(FAPI_CONTEXT *context,
     }
 
     context->primary_state = PRIMARY_INIT;
-    r = ifapi_asprintf(&file, "%s/%s", context->config.profile_name,
+    r = ifapi_asprintf(&file, "%s%s", context->config.profile_name,
                        IFAPI_SRK_KEY_PATH);
     goto_if_error(r, "Error ifapi_asprintf", error_cleanup);
 
@@ -1134,6 +1281,9 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_get_sessions_finish(
@@ -1148,6 +1298,8 @@ ifapi_get_sessions_finish(
         LOG_TRACE("**STATE** SESSION_WAIT_FOR_PRIMARY");
         r = ifapi_load_primary_finish(context, &context->srk_handle);
         return_try_again(r);
+
+        ifapi_cleanup_ifapi_object(&context->createPrimary.pkey_object);
         return_if_error(r, "Load primary.");
         fallthrough;
 
@@ -1375,6 +1527,10 @@ full_path_to_fapi_path(IFAPI_KEYSTORE *keystore, char *path)
  * @retval TSS2_FAPI_RC_MEMORY if memory could not be allocated for path names.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 ifapi_load_keys_async(FAPI_CONTEXT *context, char const *keyPath)
@@ -1395,6 +1551,48 @@ ifapi_load_keys_async(FAPI_CONTEXT *context, char const *keyPath)
     context->loadKey.path_list = path_list;
     path_length = ifapi_path_length(path_list);
     r = ifapi_load_key_async(context, path_length);
+    return_if_error(r, "Load key async.");
+
+    return TSS2_RC_SUCCESS;
+}
+
+/** Asynchronous preparation for loading of the parent keys.
+ *
+ * The key loading is prepared. The pathname will be extended if possible and
+ * a linked list with the directories will be created.
+ *
+ * @param[in,out] context The FAPI_CONTEXT.
+ * @param[in]     keyPath the key path without the parent directories
+ *                of the key store. (e.g. HE/EK, HS/SRK/mykey)
+ *
+ * @retval TSS2_RC_SUCCESS If the preparation is successful.
+ * @retval TSS2_FAPI_RC_MEMORY if memory could not be allocated for path names.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ */
+TSS2_RC
+ifapi_load_parent_keys_async(FAPI_CONTEXT *context, char const *keyPath)
+{
+    TSS2_RC r;
+    NODE_STR_T *path_list;
+    size_t path_length;
+    char *fapi_key_path = NULL;
+
+    LOG_TRACE("Load key: %s", keyPath);
+    fapi_key_path = strdup(keyPath);
+    check_oom(fapi_key_path);
+    full_path_to_fapi_path(&context->keystore, fapi_key_path);
+    r = get_explicit_key_path(&context->keystore, fapi_key_path, &path_list);
+    SAFE_FREE(fapi_key_path);
+    return_if_error(r, "Compute explicit path.");
+
+    context->loadKey.path_list = path_list;
+    path_length = ifapi_path_length(path_list);
+    r = ifapi_load_key_async(context, path_length - 1);
     return_if_error(r, "Load key async.");
 
     return TSS2_RC_SUCCESS;
@@ -1428,6 +1626,9 @@ ifapi_load_keys_async(FAPI_CONTEXT *context, char const *keyPath)
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 ifapi_load_keys_finish(
@@ -1468,7 +1669,6 @@ ifapi_load_key_async(FAPI_CONTEXT *context, size_t position)
     context->loadKey.position = position;
     context->loadKey.key_list = NULL;
     context->loadKey.parent_handle = ESYS_TR_NONE;
-    // context->loadKey.auth_object = NULL;
 
     return TSS2_RC_SUCCESS;
 }
@@ -1507,6 +1707,9 @@ ifapi_load_key_async(FAPI_CONTEXT *context, size_t position)
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 ifapi_load_key_finish(FAPI_CONTEXT *context, bool flush_parent)
@@ -1524,6 +1727,7 @@ ifapi_load_key_finish(FAPI_CONTEXT *context, bool flush_parent)
         /* Compute path name of key to be loaded. */
         r = ifapi_path_string_n(&context->loadKey.key_path, NULL, path_list, NULL,
                                 *position);
+        LOG_TRACE("Load path %s", context->loadKey.key_path);
         return_if_error(r, "Compute key path.");
 
         context->loadKey.key_object = ifapi_allocate_object(context);
@@ -1556,7 +1760,7 @@ ifapi_load_key_finish(FAPI_CONTEXT *context, bool flush_parent)
         return_if_error(r, "read_finish failed");
 
         if (context->loadKey.key_object->objectType != IFAPI_KEY_OBJ)
-            goto_error(r, TSS2_FAPI_RC_BAD_VALUE, "%s is no key", error_cleanup,
+            goto_error(r, TSS2_FAPI_RC_BAD_PATH, "%s is no key", error_cleanup,
                        context->loadKey.key_path);
 
         r = ifapi_initialize_object(context->esys, context->loadKey.key_object);
@@ -1569,16 +1773,19 @@ ifapi_load_key_finish(FAPI_CONTEXT *context, bool flush_parent)
             r = ifapi_copy_ifapi_key_object(&context->loadKey.auth_object,
                 context->loadKey.key_object);
             goto_if_error(r, "Could not copy key object", error_cleanup);
-            ifapi_cleanup_ifapi_object(context->loadKey.key_object);            context->loadKey.state = LOAD_KEY_LOAD_KEY;
+            ifapi_cleanup_ifapi_object(context->loadKey.key_object);
+            context->loadKey.state = LOAD_KEY_LOAD_KEY;
 
             return TSS2_FAPI_RC_TRY_AGAIN;
         }
 
         if (key->private.size == 0) {
             /* Create a deep copy of the primary key */
-            ifapi_cleanup_ifapi_key(key);
-            r = ifapi_copy_ifapi_key(key, &context->createPrimary.pkey_object.misc.key);
+            r = ifapi_copy_ifapi_key_object(&context->createPrimary.pkey_object,
+                                            context->loadKey.key_object);
             goto_if_error(r, "Could not copy primary key", error_cleanup);
+
+            ifapi_cleanup_ifapi_key(key);
             context->primary_state = PRIMARY_READ_HIERARCHY;
             context->loadKey.state = LOAD_KEY_WAIT_FOR_PRIMARY;
             return TSS2_FAPI_RC_TRY_AGAIN;
@@ -1789,8 +1996,17 @@ ifapi_authorize_object(FAPI_CONTEXT *context, IFAPI_OBJECT *object, ESYS_TR *ses
             if (!policy_digest_size(object)) {
                 /* No policy used authorization callbacks have to be called if necessary. */
                 if (object_with_auth(object)) {
-                    r = ifapi_set_auth(context, object, "Authorize object");
-                    return_if_error(r, "Set auth value");
+                    /* Check whether hierarchy was already authorized. */
+                    if (object->objectType != IFAPI_HIERARCHY_OBJ ||
+                        !object->misc.hierarchy.authorized) {
+                        char *description = NULL;
+                        r = ifapi_get_description(object, &description);
+                        return_if_error(r, "Get description");
+
+                        r = ifapi_set_auth(context, object, description);
+                        SAFE_FREE(description);
+                        return_if_error(r, "Set auth value");
+                    }
                 }
                 /* No policy session needed current fapi session can be used */
                 if (context->session1 && context->session1 != ESYS_TR_NONE)
@@ -1800,8 +2016,10 @@ ifapi_authorize_object(FAPI_CONTEXT *context, IFAPI_OBJECT *object, ESYS_TR *ses
                     *session = ESYS_TR_PASSWORD;
                 break;
             }
-            r = ifapi_policyutil_execute_prepare(context, get_name_alg(context, object)
-                                                 ,object->policy);
+            /* Save current object to be authorized in context. */
+            context->current_auth_object = object;
+            r = ifapi_policyutil_execute_prepare(context, get_name_alg(context, object),
+                                                 object->policy);
             return_if_error(r, "Prepare policy execution.");
 
             /* Next state will switch from prev context to next context. */
@@ -1823,7 +2041,11 @@ ifapi_authorize_object(FAPI_CONTEXT *context, IFAPI_OBJECT *object, ESYS_TR *ses
 
             /* Check whether PolicyCommand requiring authorization was executed */
             if (auth_required == TPM2_YES) {
-                r = ifapi_set_auth(context, object, "Authorize object");
+                char* description;
+                r = ifapi_get_description(object, &description);
+                return_if_error(r, "Get description");
+                r = ifapi_set_auth(context, object, description);
+                SAFE_FREE(description);
                 goto_if_error(r, "Set auth value", error);
             }
             /* Clear continue session flag, so policy session will be flushed after authorization */
@@ -1875,7 +2097,8 @@ error:
  *         command execution fails.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a needed authorization callback
  *         is not defined.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
@@ -1883,6 +2106,7 @@ error:
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 ifapi_nv_write(
@@ -2004,10 +2228,14 @@ ifapi_nv_write(
         r = Esys_NV_Write_Finish(context->esys);
         return_try_again(r);
 
-        if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH) {
+        if (number_rc(r) == TPM2_RC_BAD_AUTH) {
             if (context->nv_cmd.nv_write_state == NV2_WRITE_NULL_AUTH_SENT) {
                 IFAPI_OBJECT *auth_object = &context->nv_cmd.auth_object;
-                r = ifapi_set_auth(context, auth_object, "NV Write");
+                char *description;
+                r = ifapi_get_description(auth_object, &description);
+                return_if_error(r, "Get description");
+                r = ifapi_set_auth(context, auth_object, description);
+                SAFE_FREE(description);
                 goto_if_error_reset_state(r, " Fapi_NvWrite_Finish", error_cleanup);
 
                 /* Prepare the writing to NV ram. */
@@ -2075,7 +2303,7 @@ ifapi_nv_write(
         r = ifapi_keystore_store_async(&context->keystore, &context->io,
                                        context->nv_cmd.nvPath,
                                        &context->nv_cmd.nv_object);
-        goto_if_error_reset_state(r, "Could not open: %sh", error_cleanup,
+        goto_if_error_reset_state(r, "Could not open: %s", error_cleanup,
                                   context->nv_cmd.nvPath);
         context->nv_cmd.nv_write_state = NV2_WRITE_WRITE;
         fallthrough;
@@ -2132,6 +2360,7 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
  *         operation already pending.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  */
 TSS2_RC
 ifapi_nv_read(
@@ -2192,8 +2421,18 @@ ifapi_nv_read(
 
         r = Esys_NV_Read_Finish(context->esys, &aux_data);
 
-        if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
+        if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
             return TSS2_FAPI_RC_TRY_AGAIN;
+
+        if (context->nv_cmd.auth_index == ESYS_TR_RH_OWNER  &&
+            number_rc(r) == TPM2_RC_BAD_AUTH &&
+            auth_object->misc.hierarchy.with_auth == TPM2_NO) {
+            /* NULL auth failed, password was used for owner hierarchy, try again. */
+            auth_object->misc.hierarchy.with_auth = TPM2_YES;
+            context->nv_cmd.nv_read_state =  NV_READ_AUTHORIZE;
+
+            return TSS2_FAPI_RC_TRY_AGAIN;
+        }
 
         goto_if_error_reset_state(r, "FAPI NV_Read_Finish", error_cleanup);
 
@@ -2364,6 +2603,9 @@ error_cleanup:
  *         operation already pending.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_load_key(
@@ -2459,6 +2701,7 @@ error_cleanup:
  *         operation already pending.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  */
 TSS2_RC
 ifapi_key_sign(
@@ -2512,14 +2755,18 @@ ifapi_key_sign(
         goto_if_error(r, "Error: Sign", cleanup);
 
         /* Prepare the flushing of the signing key. */
-        r = Esys_FlushContext_Async(context->esys, context->Key_Sign.handle);
-        goto_if_error(r, "Error: FlushContext", cleanup);
+        if (!sig_key_object->misc.key.persistent_handle) {
+            r = Esys_FlushContext_Async(context->esys, context->Key_Sign.handle);
+            goto_if_error(r, "Error: FlushContext", cleanup);
+        }
         fallthrough;
 
     statecase(context->Key_Sign.state, SIGN_WAIT_FOR_FLUSH);
-        r = Esys_FlushContext_Finish(context->esys);
-        return_try_again(r);
-        goto_if_error(r, "Error: Sign", cleanup);
+        if (!sig_key_object->misc.key.persistent_handle) {
+            r = Esys_FlushContext_Finish(context->esys);
+            return_try_again(r);
+            goto_if_error(r, "Error: Sign", cleanup);
+        }
 
         int pem_size;
         if (publicKey) {
@@ -2532,9 +2779,13 @@ ifapi_key_sign(
         context->Key_Sign.handle = ESYS_TR_NONE;
         *tpm_signature = context->Key_Sign.signature;
         if (certificate) {
-            *certificate = strdup(context->Key_Sign.key_object->misc.key.certificate);
-            goto_if_null(*certificate, "Out of memory.",
-                    TSS2_FAPI_RC_MEMORY, cleanup);
+            if (context->Key_Sign.key_object->misc.key.certificate) {
+                *certificate = strdup(context->Key_Sign.key_object->misc.key.certificate);
+                goto_if_null(*certificate, "Out of memory.",
+                             TSS2_FAPI_RC_MEMORY, cleanup);
+            } else {
+                strdup_check(*certificate, "", r, cleanup);
+            }
         }
         context->Key_Sign.state = SIGN_INIT;
         LOG_TRACE("success");
@@ -2602,6 +2853,7 @@ cleanup:
  * @param[in]     ectx The ESAPI context.
  * @param[in,out] object  The nv object or the key.
  * @retval TSS2_RC_SUCCESS if the function call was a success.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
  */
 TSS2_RC
 ifapi_esys_serialize_object(ESYS_CONTEXT *ectx, IFAPI_OBJECT *object)
@@ -2664,6 +2916,8 @@ ifapi_initialize_object(
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
     ESYS_TR handle;
+    const char *path;
+    size_t pos = 0, pos2;
 
     switch (object->objectType) {
     case IFAPI_NV_OBJ:
@@ -2690,8 +2944,40 @@ ifapi_initialize_object(
         object->handle = handle;
         break;
 
+    case IFAPI_HIERARCHY_OBJ:
+        path = object->rel_path;
+        if (path) {
+            /* Determine esys handle from pathname. */
+            if (strncmp("/", &path[0], 1) == 0)
+                pos += 1;
+            /* Skip profile if it does exist in path */
+            if (strncmp("P_", &path[pos], 2) == 0) {
+                char *  start = strchr(&path[pos], IFAPI_FILE_DELIM_CHAR);
+                if (start) {
+                    pos2 = (int)(start - &path[pos]);
+                    pos = pos2 + 2;
+                } else {
+                    return_error(TSS2_FAPI_RC_GENERAL_FAILURE, "Invalid path.");
+                }
+            }
+
+            if (strcmp(&path[pos], "HS") == 0) {
+                object->handle = ESYS_TR_RH_OWNER;
+            } else if (strcmp(&path[pos], "HE") == 0) {
+                object->handle = ESYS_TR_RH_ENDORSEMENT;
+            } else if (strcmp(&path[pos], "LOCKOUT") == 0) {
+                object->handle = ESYS_TR_RH_LOCKOUT;
+            } else  if (strcmp(&path[pos], "HN") == 0) {
+                object->handle = ESYS_TR_RH_NULL;
+            } else {
+                return_error(TSS2_FAPI_RC_GENERAL_FAILURE, "Invalid path.");
+            }
+        }
+        object->authorization_state = AUTH_INIT;
+        break;
+
     default:
-        /* Nothing to be done */
+        object->authorization_state = AUTH_INIT;
         break;
     }
 
@@ -2725,6 +3011,10 @@ cleanup:
  *         config file.
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
  *         operation already pending.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 ifapi_key_create_prepare_auth(
@@ -2745,6 +3035,7 @@ ifapi_key_create_prepare_auth(
                authValue, strlen(authValue));
         context->cmd.Key_Create.inSensitive.sensitive.userAuth.size = strlen(authValue);
     }
+    context->cmd.Key_Create.gen_sensitive_random = false;
     context->cmd.Key_Create.inSensitive.sensitive.data.size = 0;
     r = ifapi_key_create_prepare(context, keyPath, policyPath);
     return r;
@@ -2776,6 +3067,10 @@ ifapi_key_create_prepare_auth(
  *         config file.
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
  *         operation already pending.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 ifapi_key_create_prepare_sensitive(
@@ -2789,13 +3084,18 @@ ifapi_key_create_prepare_sensitive(
     TSS2_RC r;
 
     memset(&context->cmd.Key_Create.inSensitive, 0, sizeof(TPM2B_SENSITIVE_CREATE));
-    if (dataSize > sizeof(TPMU_HA) || dataSize == 0) {
-        return_error(TSS2_FAPI_RC_BAD_VALUE, "Data to big or equal zero.");
+    if (dataSize > sizeof(context->cmd.Key_Create.inSensitive.sensitive.data.buffer)
+        || dataSize == 0) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "Data too big or equal zero.");
     }
-    if (data)
+    if (data) {
         /* Copy the sensitive data */
+        context->cmd.Key_Create.gen_sensitive_random = false;
         memcpy(&context->cmd.Key_Create.inSensitive.sensitive.data.buffer,
                data, dataSize);
+    } else {
+        context->cmd.Key_Create.gen_sensitive_random = true;
+    }
     context->cmd.Key_Create.inSensitive.sensitive.data.size = dataSize;
     if (authValue) {
         /* Copy the auth value. */
@@ -2833,6 +3133,10 @@ ifapi_key_create_prepare_sensitive(
  *         operation already pending.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 ifapi_key_create_prepare(
@@ -2916,6 +3220,12 @@ error:
  * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
  *         operation already pending.
  * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_PATH_ALREADY_EXISTS if the object already exists in object store.
  */
 TSS2_RC
 ifapi_key_create(
@@ -2931,13 +3241,16 @@ ifapi_key_create(
     TPM2B_DIGEST *creationHash = NULL;
     TPMT_TK_CREATION *creationTicket = NULL;
     IFAPI_OBJECT *object = &context->cmd.Key_Create.object;
+    IFAPI_OBJECT *hierarchy = &context->cmd.Key_Create.hierarchy;
     ESYS_TR auth_session;
+    uint8_t *random_data = NULL;
 
     LOG_TRACE("call");
 
     switch (context->cmd.Key_Create.state) {
     statecase(context->cmd.Key_Create.state, KEY_CREATE_INIT);
         context->cmd.Key_Create.public_templ = *template;
+        context->loadKey.auth_object.handle = ESYS_TR_NONE;
 
         /* Profile name is first element of the explicit path list */
         char *profile_name = context->loadKey.path_list->str;
@@ -2988,7 +3301,7 @@ ifapi_key_create(
         }
         r = ifapi_get_sessions_async(context,
                                      IFAPI_SESSION_GENEK | IFAPI_SESSION1,
-                                     TPMA_SESSION_DECRYPT, 0);
+                                     TPMA_SESSION_ENCRYPT | TPMA_SESSION_DECRYPT, 0);
         goto_if_error_reset_state(r, "Create sessions", error_cleanup);
         fallthrough;
 
@@ -2998,7 +3311,22 @@ ifapi_key_create(
                                       context->cmd.Key_Create.profile->nameAlg);
         return_try_again(r);
         goto_if_error_reset_state(r, " FAPI create session", error_cleanup);
+        fallthrough;
 
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_WAIT_FOR_RANDOM);
+        if (context->cmd.Key_Create.gen_sensitive_random) {
+            r = ifapi_get_random(context,
+                                 context->cmd.Key_Create.inSensitive.sensitive.data.size,
+                                 &random_data);
+            return_try_again(r);
+            goto_if_error_reset_state(r, "FAPI GetRandom", error_cleanup);
+
+            /* Copy the sensitive data */
+            memcpy(&context->cmd.Key_Create.inSensitive.sensitive.data.buffer,
+                   random_data,
+                   context->cmd.Key_Create.inSensitive.sensitive.data.size);
+            SAFE_FREE(random_data);
+        }
         path_length = ifapi_path_length(path_list);
         r = ifapi_load_key_async(context, path_length - 1);
         goto_if_error(r, "LoadKey async", error_cleanup);
@@ -3046,7 +3374,6 @@ ifapi_key_create(
         object->misc.key.creationTicket = *creationTicket;
         object->misc.key.description = NULL;
         object->misc.key.certificate = NULL;
-        SAFE_FREE(outPrivate);
         SAFE_FREE(creationData);
         SAFE_FREE(creationTicket);
         SAFE_FREE(creationHash);
@@ -3061,18 +3388,129 @@ ifapi_key_create(
             object->misc.key.signing_scheme = context->cmd.Key_Create.profile->rsa_signing_scheme;
         else
             object->misc.key.signing_scheme = context->cmd.Key_Create.profile->ecc_signing_scheme;
-        SAFE_FREE(outPublic);
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_WAIT_FOR_LOAD_AUTHORIZATION);
+        if (template->persistent_handle) {
+            r = ifapi_authorize_object(context, &context->loadKey.auth_object, &auth_session);
+            FAPI_SYNC(r, "Authorize key.", error_cleanup);
+
+            r = Esys_Load_Async(context->esys, context->loadKey.handle,
+                                auth_session,
+                                ESYS_TR_NONE, ESYS_TR_NONE,
+                                outPrivate, outPublic);
+            goto_if_error(r, "Load key.", error_cleanup);
+
+        }
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_WAIT_FOR_KEY);
+        if (template->persistent_handle) {
+            r = Esys_Load_Finish(context->esys, &context->loadKey.handle);
+            return_try_again(r);
+            goto_if_error_reset_state(r, "Load", error_cleanup);
+        }
+        /* Prepare Flushing of key used for authorization */
+        if (!context->loadKey.auth_object.misc.key.persistent_handle) {
+            r = Esys_FlushContext_Async(context->esys, context->loadKey.auth_object.handle);
+            goto_if_error(r, "Flush parent", error_cleanup);
+        }
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_FLUSH1);
+        if (!context->loadKey.auth_object.misc.key.persistent_handle) {
+            r = Esys_FlushContext_Finish(context->esys);
+            try_again_or_error_goto(r, "Flush context", error_cleanup);
+
+            ifapi_cleanup_ifapi_object(&context->loadKey.auth_object);
+        }
+        if (template->persistent_handle) {
+            r = ifapi_keystore_load_async(&context->keystore, &context->io, "/HS");
+            return_if_error2(r, "Could not open hierarchy /HS");
+        }
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_WAIT_FOR_HIERARCHY);
+        if (template->persistent_handle) {
+            r = ifapi_keystore_load_finish(&context->keystore, &context->io, hierarchy);
+            return_try_again(r);
+            return_if_error(r, "read_finish failed");
+            r = ifapi_initialize_object(context->esys, hierarchy);
+            goto_if_error_reset_state(r, "Initialize hierarchy object", error_cleanup);
+
+            hierarchy->handle = ESYS_TR_RH_OWNER;
+        }
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_AUTHORIZE_HIERARCHY);
+        if (template->persistent_handle) {
+            r = ifapi_authorize_object(context, hierarchy, &auth_session);
+            FAPI_SYNC(r, "Authorize hierarchy.", error_cleanup);
+
+            object->misc.key.persistent_handle = template->persistent_handle;
+
+            /* Prepare making the loaded key permanent. */
+            r = Esys_EvictControl_Async(context->esys, hierarchy->handle,
+                                        context->loadKey.handle,
+                                        auth_session, ESYS_TR_NONE,
+                                        ESYS_TR_NONE,
+                                        object->misc.key.persistent_handle);
+            goto_if_error(r, "Error Esys EvictControl", error_cleanup);
+
+            ifapi_cleanup_ifapi_object(hierarchy);
+        }
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_WAIT_FOR_EVICT_CONTROL);
+        if (template->persistent_handle) {
+            /* Prepare making the loaded key permanent. */
+            r = Esys_EvictControl_Finish(context->esys, &object->handle);
+            return_try_again(r);
+            goto_if_error(r, "Evict control failed", error_cleanup);
+        }
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_FLUSH2);
+        /* Flush the key which was evicted. */
+        if (template->persistent_handle) {
+            r = ifapi_flush_object(context, context->loadKey.handle);
+            return_try_again(r);
+            goto_if_error(r, "Flush key", error_cleanup);
+        }
+
         fallthrough;
 
     statecase(context->cmd.Key_Create.state, KEY_CREATE_WRITE_PREPARE);
+        SAFE_FREE(outPrivate);
+        SAFE_FREE(outPublic);
+
+        if (template->persistent_handle) {
+            /* Compute the serialization, which will be used for the
+               reconstruction of the key object. */
+            SAFE_FREE(object->misc.key.serialization.buffer);
+            r = Esys_TR_Serialize(context->esys, object->handle,
+                                  &object->misc.key.serialization.buffer,
+                                  &object->misc.key.serialization.size);
+            goto_if_error(r, "Serialize object", error_cleanup);
+        }
+
         /* Perform esys serialization if necessary */
         r = ifapi_esys_serialize_object(context->esys, object);
         goto_if_error(r, "Prepare serialization", error_cleanup);
 
-        /* Start writing the NV object to the key store */
+        /* Check whether object already exists in key store.*/
+        r = ifapi_keystore_object_does_not_exist(&context->keystore,
+                                                 context->cmd.Key_Create.keyPath,
+                                                 object);
+        goto_if_error_reset_state(r, "Could not write: %s", error_cleanup,
+                                  context->cmd.Key_Create.keyPath);
+
+        /* Start writing the object to the key store */
         r = ifapi_keystore_store_async(&context->keystore, &context->io,
                                        context->cmd.Key_Create.keyPath, object);
-        goto_if_error_reset_state(r, "Could not open: %sh", error_cleanup,
+        goto_if_error_reset_state(r, "Could not open: %s", error_cleanup,
                                   context->cmd.Key_Create.keyPath);
         ifapi_cleanup_ifapi_object(object);
         fallthrough;
@@ -3083,19 +3521,6 @@ ifapi_key_create(
         return_try_again(r);
         return_if_error_reset_state(r, "write_finish failed");
 
-        if (context->loadKey.auth_object.misc.key.persistent_handle) {
-            context->cmd.Key_Create.state = KEY_CREATE_INIT;
-            r = TSS2_RC_SUCCESS;
-            break;
-        }
-        /* Prepare Flushing of key used for authorization */
-        r = Esys_FlushContext_Async(context->esys, context->loadKey.auth_object.handle);
-        goto_if_error(r, "Flush parent", error_cleanup);
-        fallthrough;
-
-    statecase(context->cmd.Key_Create.state, KEY_CREATE_FLUSH);
-        r = Esys_FlushContext_Finish(context->esys);
-        try_again_or_error_goto(r, "Flush context", error_cleanup);
         fallthrough;
 
     statecase(context->cmd.Key_Create.state, KEY_CREATE_CLEANUP);
@@ -3108,7 +3533,8 @@ ifapi_key_create(
 
     statecasedefault(context->cmd.Key_Create.state);
     }
-error_cleanup:
+
+ cleanup:
     free_string_list(context->loadKey.path_list);
     SAFE_FREE(outPublic);
     SAFE_FREE(outPrivate);
@@ -3117,9 +3543,21 @@ error_cleanup:
     SAFE_FREE(creationTicket);
     SAFE_FREE(context->cmd.Key_Create.policyPath);
     SAFE_FREE(context->cmd.Key_Create.keyPath);
+    SAFE_FREE(random_data);
     ifapi_cleanup_ifapi_object(object);
     ifapi_session_clean(context);
+    if  (template->persistent_handle)
+        ifapi_cleanup_ifapi_object(hierarchy);
     return r;
+
+ error_cleanup:
+    if  (template->persistent_handle)
+        ifapi_cleanup_ifapi_object(hierarchy);
+    if (context->loadKey.auth_object.handle != ESYS_TR_NONE &&
+        !context->loadKey.auth_object.misc.key.persistent_handle) {
+        Esys_FlushContext(context->esys, context->loadKey.auth_object.handle);
+    }
+    goto cleanup;
 }
 
 /** Get signature scheme for key.
@@ -3200,6 +3638,16 @@ ifapi_get_sig_scheme(
  *         operation already pending.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
  *         is not set.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occured while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 TSS2_RC
 ifapi_change_auth_hierarchy(
@@ -3209,18 +3657,23 @@ ifapi_change_auth_hierarchy(
     TPM2B_AUTH *newAuthValue)
 {
     TSS2_RC r;
+    ESYS_TR auth_session;
 
     switch (context->hierarchy_state) {
     statecase(context->hierarchy_state, HIERARCHY_CHANGE_AUTH_INIT);
-        if (newAuthValue->size > 0)
-            hierarchy_object->misc.hierarchy.with_auth = TPM2_YES;
-        else
-            hierarchy_object->misc.hierarchy.with_auth = TPM2_NO;
+        if (hierarchy_object->misc.hierarchy.with_auth == TPM2_YES ||
+            policy_digest_size(hierarchy_object)) {
+            r = ifapi_authorize_object(context, hierarchy_object, &auth_session);
+            FAPI_SYNC(r, "Authorize hierarchy.", error);
+        } else {
+            auth_session = context->session1;
+        }
+
         r = Esys_HierarchyChangeAuth_Async(context->esys,
                                            handle,
-                                           (context->session1
-                                            && context->session1 != ESYS_TR_NONE) ?
-                                           context->session1 : ESYS_TR_PASSWORD,
+                                           (auth_session
+                                            && auth_session != ESYS_TR_NONE) ?
+                                           auth_session : ESYS_TR_PASSWORD,
                                            ESYS_TR_NONE, ESYS_TR_NONE,
                                            newAuthValue);
         return_if_error(r, "HierarchyChangeAuth");
@@ -3230,37 +3683,40 @@ ifapi_change_auth_hierarchy(
         r = Esys_HierarchyChangeAuth_Finish(context->esys);
         return_try_again(r);
 
-        if ((r & ~TPM2_RC_N_MASK) != TPM2_RC_BAD_AUTH) {
-            return_if_error(r, "Hierarchy change auth.");
-            context->hierarchy_state = HIERARCHY_CHANGE_AUTH_INIT;
-            LOG_TRACE("success");
-            return TSS2_RC_SUCCESS;
+        if  (number_rc(r) == TPM2_RC_BAD_AUTH &&
+             hierarchy_object->misc.hierarchy.with_auth == TPM2_NO) {
+
+            /* Retry after NULL authorization was not successful */
+            char *description;
+            r = ifapi_get_description(hierarchy_object, &description);
+            return_if_error(r, "Get description");
+
+            r = ifapi_set_auth(context, hierarchy_object, description);
+            SAFE_FREE(description);
+            return_if_error(r, "HierarchyChangeAuth");
+
+            r = Esys_HierarchyChangeAuth_Async(context->esys,
+                                               handle,
+                                               (context->session1
+                                                && context->session1 != ESYS_TR_NONE) ?
+                                               context->session1 : ESYS_TR_PASSWORD,
+                                               ESYS_TR_NONE, ESYS_TR_NONE,
+                                               newAuthValue);
+            return_if_error(r, "HierarchyChangeAuth");
+            return TSS2_FAPI_RC_TRY_AGAIN;
         }
-
-        /* Retry after NULL authorization was not successful */
-        r = ifapi_set_auth(context, hierarchy_object, "Hierarchy object");
         return_if_error(r, "HierarchyChangeAuth");
 
-        r = Esys_HierarchyChangeAuth_Async(context->esys,
-                                           handle,
-                                           (context->session1
-                                            && context->session1 != ESYS_TR_NONE) ?
-                                           context->session1 : ESYS_TR_PASSWORD,
-                                           ESYS_TR_NONE, ESYS_TR_NONE,
-                                           newAuthValue);
-        return_if_error(r, "HierarchyChangeAuth");
-        fallthrough;
-
-    statecase(context->hierarchy_state, HIERARCHY_CHANGE_AUTH_AUTH_SENT);
-        r = Esys_HierarchyChangeAuth_Finish(context->esys);
-        FAPI_SYNC(r, "Hierarchy change auth.", error);
+        if (newAuthValue->size > 0)
+            hierarchy_object->misc.hierarchy.with_auth = TPM2_YES;
+        else
+            hierarchy_object->misc.hierarchy.with_auth = TPM2_NO;
 
         context->hierarchy_state = HIERARCHY_CHANGE_AUTH_INIT;
         return r;
 
     statecasedefault(context->hierarchy_state);
     }
-
 error:
     return r;
 }
@@ -3301,6 +3757,10 @@ error:
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
  *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 ifapi_change_policy_hierarchy(
@@ -3310,71 +3770,94 @@ ifapi_change_policy_hierarchy(
     TPMS_POLICY *policy)
 {
     TSS2_RC r;
+    ESYS_TR auth_session;
 
     switch (context->hierarchy_policy_state) {
     statecase(context->hierarchy_policy_state, HIERARCHY_CHANGE_POLICY_INIT);
-        if (! policy || ! policy->policy) {
+        if ((! policy || ! policy->policy) && !hierarchy_object->policy) {
             /* No policy will be used for hierarchy */
             return TSS2_RC_SUCCESS;
         }
+        fallthrough;
 
-        context->policy.state = POLICY_INIT;
+    statecase(context->hierarchy_policy_state, HIERARCHY_CHANGE_POLICY_AUTHORIZE);
+        if (hierarchy_object->misc.hierarchy.with_auth == TPM2_YES ||
+            policy_digest_size(hierarchy_object)) {
+            r = ifapi_authorize_object(context, hierarchy_object, &auth_session);
+            FAPI_SYNC(r, "Authorize hierarchy.", error);
+        } else {
+            auth_session = context->session1;
+        }
 
-        /* Calculate the policy digest which will be used as hierarchy policy. */
-        r = ifapi_calculate_tree(context, NULL, /**< no path needed */
-                                 policy,
-                                 context->profiles.default_profile.nameAlg,
-                                 &context->cmd.Provision.digest_idx,
-                                 &context->cmd.Provision.hash_size);
-        goto_if_error(r, "Policy calculation", error);
+        if (policy) {
+            context->policy.state = POLICY_INIT;
 
+            /* Calculate the policy digest which will be used as hierarchy policy. */
+            r = ifapi_calculate_tree(context, NULL, /**< no path needed */
+                                     policy,
+                                     context->profiles.default_profile.nameAlg,
+                                     &context->cmd.Provision.digest_idx,
+                                     &context->cmd.Provision.hash_size);
+            goto_if_error(r, "Policy calculation", error);
 
-        /* Policy data will be stored in the provisioning context. */
-        context->cmd.Provision.policy_digest.size = context->cmd.Provision.hash_size;
-        memcpy(&context->cmd.Provision.policy_digest.buffer[0],
-               &policy
-               ->policyDigests.digests[context->cmd.Provision.digest_idx].digest,
-               context->cmd.Provision.hash_size);
+            /* Policy data will be stored in the provisioning context. */
+            context->cmd.Provision.policy_digest.size = context->cmd.Provision.hash_size;
+            memcpy(&context->cmd.Provision.policy_digest.buffer[0],
+                   &policy
+                   ->policyDigests.digests[context->cmd.Provision.digest_idx].digest,
+                   context->cmd.Provision.hash_size);
 
-        hierarchy_object->policy = policy;
-        hierarchy_object->misc.hierarchy.authPolicy = context->cmd.Provision.policy_digest;
+            hierarchy_object->policy = policy;
+            hierarchy_object->misc.hierarchy.authPolicy = context->cmd.Provision.policy_digest;
+        } else {
+            /* No policy will be used for this hierarchy. */
+            context->cmd.Provision.policy_digest.size = 0;
+            ifapi_cleanup_policy(hierarchy_object->policy);
+            SAFE_FREE(hierarchy_object->policy);
+            hierarchy_object->policy = NULL;
+            hierarchy_object->misc.hierarchy.with_auth = TPM2_NO;
+            hierarchy_object->misc.hierarchy.authPolicy.size = 0;
+        }
 
         /* Prepare the setting of the policy. */
         r = Esys_SetPrimaryPolicy_Async(context->esys, handle,
-                                        ESYS_TR_PASSWORD, ESYS_TR_NONE, ESYS_TR_NONE,
+                                        (auth_session
+                                         && auth_session != ESYS_TR_NONE) ?
+                                        auth_session : ESYS_TR_PASSWORD,
+                                        ESYS_TR_NONE, ESYS_TR_NONE,
                                         &context->cmd.Provision.policy_digest,
-                                        context->profiles.default_profile.nameAlg);
+                                        context->cmd.Provision.policy_digest.size ?
+                                        context->profiles.default_profile.nameAlg :
+                                        TPM2_ALG_NULL);
         return_if_error(r, "Esys_SetPrimaryPolicy_Async");
         fallthrough;
 
     statecase(context->hierarchy_policy_state, HIERARCHY_CHANGE_POLICY_NULL_AUTH_SENT);
         r = Esys_SetPrimaryPolicy_Finish(context->esys);
         return_try_again(r);
-        if ((r & ~TPM2_RC_N_MASK) != TPM2_RC_BAD_AUTH) {
-            return_if_error(r, "SetPrimaryPolicy_Finish");
-            context->hierarchy_policy_state = HIERARCHY_CHANGE_POLICY_INIT;
-            return TSS2_RC_SUCCESS;
+        if (number_rc(r) == TPM2_RC_BAD_AUTH  &&
+             hierarchy_object->misc.hierarchy.with_auth == TPM2_NO) {
+            /* Retry after NULL authorization was not successful */
+            char *description;
+            r = ifapi_get_description(hierarchy_object, &description);
+            return_if_error(r, "Get description");
+
+            r = ifapi_set_auth(context, hierarchy_object, description);
+            SAFE_FREE(description);
+            return_if_error(r, "HierarchyChangePolicy");
+
+            r = Esys_SetPrimaryPolicy_Async(context->esys, handle,
+                                            (context->session1
+                                             && context->session1 != ESYS_TR_NONE) ?
+                                            context->session1 : ESYS_TR_PASSWORD,
+                                            ESYS_TR_NONE, ESYS_TR_NONE,
+                                            &context->cmd.Provision.policy_digest,
+                                            context->profiles.default_profile.nameAlg);
+            return_if_error(r, "Esys_SetPrimaryPolicy_Async");
+            return TSS2_FAPI_RC_TRY_AGAIN;
         }
-
-        /* Retry after NULL authorization was not successful */
-        ifapi_init_hierarchy_object(hierarchy_object, handle);
-        r = ifapi_set_auth(context, hierarchy_object, "Hierarchy object");
-        return_if_error(r, "HierarchyChangePolicy");
-
-        r = Esys_SetPrimaryPolicy_Async(context->esys, handle,
-                                        context->session1, ESYS_TR_NONE, ESYS_TR_NONE,
-                                        &context->cmd.Provision.policy_digest,
-                                        context->profiles.default_profile.nameAlg);
-        return_if_error(r, "Esys_SetPrimaryPolicy_Async");
-
-        fallthrough;
-
-    statecase(context->hierarchy_policy_state, HIERARCHY_CHANGE_POLICY_AUTH_SENT);
-        r = Esys_SetPrimaryPolicy_Finish(context->esys);
-        return_try_again(r);
-        return_if_error(r, "SetPrimaryPolicy_Finish");
-
-        return TSS2_RC_SUCCESS;
+        return_if_error(r, "Set primary policy");
+        break;
 
     statecasedefault(context->hierarchy_policy_state);
     }
@@ -3675,6 +4158,15 @@ error_cleanup:
  *         object store.
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 ifapi_get_certificates(
@@ -3685,17 +4177,15 @@ ifapi_get_certificates(
 {
     TSS2_RC r;
     TPMI_YES_NO moreData;
-    TPMS_CAPABILITY_DATA **capabilityData = &context->cmd.Provision.capabilityData;
-    TPM2B_NV_PUBLIC *nvPublic;
     uint8_t *cert_data;
     size_t cert_size;
 
     context->cmd.Provision.cert_nv_idx = MIN_EK_CERT_HANDLE;
-    context->cmd.Provision.capabilityData = NULL;
 
     switch (context->get_cert_state) {
     statecase(context->get_cert_state, GET_CERT_INIT);
         *cert_list = NULL;
+        context->cmd.Provision.capabilityData = NULL;
         context->cmd.Provision.cert_idx = 0;
         /* Prepare the reading of the capability handles in the certificate range */
         r = Esys_GetCapability_Async(context->esys,
@@ -3706,16 +4196,18 @@ ifapi_get_certificates(
         fallthrough;
 
     statecase(context->get_cert_state, GET_CERT_WAIT_FOR_GET_CAP);
-        r = Esys_GetCapability_Finish(context->esys, &moreData, capabilityData);
-        return_try_again(r);
-        goto_if_error_reset_state(r, "GetCapablity_Finish", error);
+        r = Esys_GetCapability_Finish(context->esys, &moreData,
+                                      &context->cmd.Provision.capabilityData);
+        try_again_or_error(r, "GetCapablity_Finish");
 
-        if (!*capabilityData || (*capabilityData)->data.handles.count == 0) {
+        if (!context->cmd.Provision.capabilityData ||
+            context->cmd.Provision.capabilityData->data.handles.count == 0) {
             *cert_list = NULL;
+            SAFE_FREE(context->cmd.Provision.capabilityData);
             return TSS2_RC_SUCCESS;
         }
-        context->cmd.Provision.capabilityData = *capabilityData;
-        context->cmd.Provision.cert_count = (*capabilityData)->data.handles.count;
+        context->cmd.Provision.cert_count =
+            context->cmd.Provision.capabilityData->data.handles.count;
 
         /* Filter out NV handles beyond the EK cert range */
         for (size_t i = 0; i < context->cmd.Provision.cert_count; i++) {
@@ -3745,8 +4237,7 @@ ifapi_get_certificates(
     statecase(context->get_cert_state, GET_CERT_GET_CERT_NV_FINISH);
         r = Esys_TR_FromTPMPublic_Finish(context->esys,
                                          &context->cmd.Provision.esys_nv_cert_handle);
-        return_try_again(r);
-        goto_if_error_reset_state(r, "TR_FromTPMPublic_Finish", error);
+        try_again_or_error_goto(r, "TR_FromTPMPublic_Finish", error);
 
         /* Read public to get size of certificate */
         r = Esys_NV_ReadPublic_Async(context->esys,
@@ -3757,18 +4248,31 @@ ifapi_get_certificates(
 
     statecase(context->get_cert_state, GET_CERT_GET_CERT_READ_PUBLIC);
         r = Esys_NV_ReadPublic_Finish(context->esys,
-                                      &nvPublic,
+                                      &context->cmd.Provision.nvPublic,
                                       NULL);
-        return_try_again(r);
-        goto_if_error(r, "Error: nv read public", error);
+        try_again_or_error_goto(r, "Error: nv read public", error);
 
         /* TPMA_NV_NO_DA is set for NV certificate */
         context->nv_cmd.nv_object.misc.nv.public.nvPublic.attributes = TPMA_NV_NO_DA;
 
+        r = ifapi_keystore_load_async(&context->keystore, &context->io, "/HS");
+        return_if_error2(r, "Could not open hierarchy /HS");
+
+        fallthrough;
+
+    statecase(context->get_cert_state, GET_CERT_GET_CERT_READ_HIERARCHY);
+        r = ifapi_keystore_load_finish(&context->keystore, &context->io,
+                                       &context->nv_cmd.auth_object);
+        try_again_or_error_goto(r, "read_finish failed", error);
+
         /* Prepare context for nv read */
+        r = ifapi_initialize_object(context->esys, &context->nv_cmd.auth_object);
+        goto_if_error_reset_state(r, "Initialize hierarchy object", error);
+
+        context->nv_cmd.auth_object.handle = ESYS_TR_RH_OWNER;
         context->nv_cmd.data_idx = 0;
         context->nv_cmd.auth_index = ESYS_TR_RH_OWNER;
-        context->nv_cmd.numBytes = nvPublic->nvPublic.dataSize;
+        context->nv_cmd.numBytes = context->cmd.Provision.nvPublic->nvPublic.dataSize;
         context->nv_cmd.esys_handle = context->cmd.Provision.esys_nv_cert_handle;
         context->nv_cmd.offset = 0;
         context->cmd.Provision.pem_cert = NULL;
@@ -3776,13 +4280,12 @@ ifapi_get_certificates(
         context->session2 = ESYS_TR_NONE;
         context->nv_cmd.nv_read_state = NV_READ_INIT;
         memset(&context->nv_cmd.nv_object, 0, sizeof(IFAPI_OBJECT));
-        Esys_Free(nvPublic);
+        Esys_Free(context->cmd.Provision.nvPublic);
         fallthrough;
 
     statecase(context->get_cert_state, GET_CERT_READ_CERT);
         r = ifapi_nv_read(context, &cert_data, &cert_size);
-        return_try_again(r);
-        goto_if_error_reset_state(r, " FAPI NV_Read", error);
+        try_again_or_error_goto(r, " FAPI NV_Read", error);
 
         context->cmd.Provision.cert_idx += 1;
 
@@ -3793,9 +4296,13 @@ ifapi_get_certificates(
             r = push_object_with_size_to_list(cert_data, cert_size, cert_list);
             goto_if_error(r, "Store certificate in list.", error);
 
+            ifapi_cleanup_ifapi_object(&context->nv_cmd.auth_object);
+
+            SAFE_FREE(context->cmd.Provision.capabilityData);
             return TSS2_RC_SUCCESS;
         } else {
             context->get_cert_state = GET_CERT_GET_CERT_NV;
+            return TSS2_FAPI_RC_TRY_AGAIN;
         }
         break;
 
@@ -3803,6 +4310,9 @@ ifapi_get_certificates(
     }
 
 error:
+    SAFE_FREE(context->cmd.Provision.capabilityData);
+    SAFE_FREE(context->cmd.Provision.capabilityData);
+    ifapi_cleanup_ifapi_object(&context->nv_cmd.auth_object);
     ifapi_free_object_list(*cert_list);
     return r;
 }
@@ -3830,7 +4340,18 @@ ifapi_get_description(IFAPI_OBJECT *object, char **description)
         obj_description = object->misc.nv.description;
         break;
     case IFAPI_HIERARCHY_OBJ:
-        obj_description = object->misc.hierarchy.description;
+        if (object->misc.hierarchy.description)
+            obj_description = object->misc.hierarchy.description;
+        else if (object->handle == ESYS_TR_RH_OWNER)
+            obj_description = "Owner Hierarchy";
+        else if (object->handle == ESYS_TR_RH_ENDORSEMENT)
+            obj_description = "Endorsement Hierarchy";
+        else if (object->handle == ESYS_TR_RH_LOCKOUT)
+            obj_description = "Lockout Hierarchy";
+        else if (object->handle == ESYS_TR_RH_NULL)
+            obj_description = "Null Hierarchy";
+        else
+            obj_description = "Hierarchy";
         break;
     default:
         *description = NULL;
@@ -3870,4 +4391,321 @@ ifapi_set_description(IFAPI_OBJECT *object, char *description)
         LOG_WARNING("Description can't be set");
         break;
     }
+}
+
+/** Determine key properties (primary, null hierarchy).
+ *
+ * It will be checked whether a path is the path of a primary key,
+ * and whether it's a key in null hiearchy
+ *
+ * @param[in,out] context The FAPI_CONTEXT.
+ * @param[in]     key_path the key path.
+ * @param[out]    is_primary if key path is the path of a primary.
+ * @param[out]    in_null_hierarchy if key is a null hierarchy key.
+ *
+ * @retval TSS2_RC_SUCCESS If the preparation is successful.
+ * @retval TSS2_FAPI_RC_MEMORY if memory could not be allocated for path names.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
+ *         the function.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ */
+TSS2_RC
+ifapi_get_key_properties(
+    FAPI_CONTEXT *context,
+    char const *key_path,
+    bool *is_primary,
+    bool *in_null_hierarchy)
+{
+    TSS2_RC r;
+    NODE_STR_T *path_list = NULL;
+    size_t path_length;
+    const char *hierarchy;
+
+    LOG_TRACE("Check primary: %s", key_path);
+
+    *is_primary = false;
+    *in_null_hierarchy = false;
+
+    r = get_explicit_key_path(&context->keystore, key_path, &path_list);
+    return_if_error(r, "Compute explicit path.");
+
+    path_length = ifapi_path_length(path_list);
+
+    if (path_length == 3) {
+        if (strncmp("P_", path_list->str, 2) == 0) {
+            hierarchy = path_list->next->str;
+            if (strcmp(hierarchy,"HS") == 0 ||
+                strcmp(hierarchy,"HE") == 0 ||
+                strcmp(hierarchy,"HN") == 0) {
+                *is_primary = true;
+            }
+        }
+    }
+    if (path_length >= 3) {
+        hierarchy = path_list->next->str;
+        if (strcmp(hierarchy,"HN") == 0)
+            *in_null_hierarchy = true;
+    }
+    free_string_list(path_list);
+    return TSS2_RC_SUCCESS;
+}
+
+/** Creation of a primary key.
+ *
+ * Depending on the flags stored in the context the creation of a primary
+ * key will be prepared.
+ *
+ * @param[in] context The FAPI_CONTEXT.
+ * @param[in] template The template which defines the key attributes and whether the
+ *            key will be persistent.
+ * @retval TSS2_RC_SUCCESS on success.
+ * @retval TSS2_FAPI_RC_BAD_VALUE if a wrong type was passed.
+ * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
+ * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
+ *         this function needs to be called again.
+ * @retval TSS2_FAPI_RC_BAD_SEQUENCE if the context has an asynchronous
+ *         operation already pending.
+ * @retval TSS2_FAPI_RC_IO_ERROR if an error occurred while accessing the
+ *         object store.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
+ *         is not set.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
+ * @retval TSS2_FAPI_RC_PATH_ALREADY_EXISTS if the object already exists in object store.
+ */
+TSS2_RC
+ifapi_create_primary(
+    FAPI_CONTEXT *context,
+    IFAPI_KEY_TEMPLATE *template)
+{
+    TSS2_RC r;
+    ESYS_TR auth_session;
+    TPM2B_PUBLIC *outPublic = NULL;
+    TPM2B_CREATION_DATA *creationData = NULL;
+    TPM2B_DIGEST *creationHash = NULL;
+    TPMT_TK_CREATION *creationTicket = NULL;
+    IFAPI_OBJECT *object = &context->cmd.Key_Create.object;
+    IFAPI_OBJECT *hierarchy = &context->cmd.Key_Create.hierarchy;
+    IFAPI_KEY *pkey = &context->cmd.Key_Create.object.misc.key;
+    const char *hierarchy_path;
+    const char *profile_name;
+
+    /* Compute policy */
+
+    switch (context->cmd.Key_Create.state) {
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_INIT);
+        profile_name = context->loadKey.path_list->str;
+        r = ifapi_profiles_get(&context->profiles, profile_name,
+                               &context->cmd.Key_Create.profile);
+        goto_if_error_reset_state(r, "Retrieving profile data", error_cleanup);
+
+        context->cmd.Key_Create.public_templ = *template;
+        r = ifapi_merge_profile_into_template(context->cmd.Key_Create.profile,
+                                              &context->cmd.Key_Create.public_templ);
+        goto_if_error_reset_state(r, "Merge profile", error_cleanup);
+
+        /* Persistent keys are not allowd in the NULL hierarchy. */
+
+        if (template->persistent_handle) {
+            hierarchy_path = context->loadKey.path_list->next->str;
+            if (strcmp(hierarchy_path, "HN") == 0)
+                goto_error_reset_state(r, TSS2_FAPI_RC_BAD_VALUE,
+                                       "Persistent keys are not possible in the NULL "
+                                       "hierarchy.", error_cleanup);
+        }
+
+        r = ifapi_get_sessions_async(context,
+                                     IFAPI_SESSION_GENEK | IFAPI_SESSION1,
+                                     TPMA_SESSION_ENCRYPT | TPMA_SESSION_DECRYPT, 0);
+        goto_if_error_reset_state(r, "Create sessions", error_cleanup);
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WAIT_FOR_SESSION);
+        r = ifapi_get_sessions_finish(context, &context->profiles.default_profile,
+                                      context->profiles.default_profile.nameAlg);
+        return_try_again(r);
+        goto_if_error(r, "Create FAPI session.", error_cleanup);
+
+        hierarchy_path = context->loadKey.path_list->next->str;
+
+        r = ifapi_keystore_load_async(&context->keystore, &context->io, hierarchy_path);
+        free_string_list(context->loadKey.path_list);
+        context->loadKey.path_list = NULL;
+        return_if_error2(r, "Could not open hierarchy /%s", hierarchy_path);
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WAIT_FOR_HIERARCHY);
+        r = ifapi_keystore_load_finish(&context->keystore, &context->io, hierarchy);
+        return_try_again(r);
+        return_if_error(r, "read_finish failed");
+
+        r = ifapi_initialize_object(context->esys, hierarchy);
+        goto_if_error_reset_state(r, "Initialize hierarchy object", error_cleanup);
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WAIT_FOR_AUTHORIZE1);
+        r = ifapi_authorize_object(context, hierarchy, &auth_session);
+        FAPI_SYNC(r, "Authorize hierarchy.", error_cleanup);
+
+        r = Esys_CreatePrimary_Async(context->esys, hierarchy->handle,
+                                     auth_session,
+                                     ESYS_TR_NONE, ESYS_TR_NONE,
+                                     &context->cmd.Key_Create.inSensitive,
+                                     &context->cmd.Key_Create.public_templ.public,
+                                     &context->cmd.Key_Create.outsideInfo,
+                                     &context->cmd.Key_Create.creationPCR);
+        goto_if_error_reset_state(r, "Prepare create primary", error_cleanup);
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WAIT_FOR_PRIMARY);
+        r = Esys_CreatePrimary_Finish(context->esys,
+                                      &context->cmd.Key_Create.handle,
+                                      &outPublic, &creationData, &creationHash,
+                                      &creationTicket);
+        try_again_or_error_goto(r, "Create primary.", error_cleanup);
+
+        /* Prepare object for serialization */
+        object->system = context->cmd.Key_Create.public_templ.system;
+        object->objectType = IFAPI_KEY_OBJ;
+        object->misc.key.public = *outPublic;
+        object->misc.key.private.size = 0;
+        object->misc.key.private.buffer = NULL;
+        object->misc.key.policyInstance = NULL;
+        object->misc.key.creationData = *creationData;
+        object->misc.key.creationTicket = *creationTicket;
+        object->misc.key.description = NULL;
+        object->misc.key.certificate = NULL;
+        object->misc.key.reset_count = context->init_time.clockInfo.resetCount;
+        SAFE_FREE(pkey->serialization.buffer);
+        r = Esys_TR_Serialize(context->esys, context->cmd.Key_Create.handle,
+                              &pkey->serialization.buffer, &pkey->serialization.size);
+        goto_if_error(r, "Error serialize esys object", error_cleanup);
+        SAFE_FREE(creationData);
+        SAFE_FREE(creationTicket);
+        SAFE_FREE(creationHash);
+        if (context->cmd.Key_Create.inSensitive.sensitive.userAuth.size > 0)
+            object->misc.key.with_auth = TPM2_YES;
+        else
+            object->misc.key.with_auth = TPM2_NO;;
+        r = ifapi_get_name(&outPublic->publicArea, &object->misc.key.name);
+        goto_if_error(r, "Get key name", error_cleanup);
+
+        if (object->misc.key.public.publicArea.type == TPM2_ALG_RSA)
+            object->misc.key.signing_scheme = context->cmd.Key_Create.profile->rsa_signing_scheme;
+        else
+            object->misc.key.signing_scheme = context->cmd.Key_Create.profile->ecc_signing_scheme;
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WAIT_FOR_AUTHORIZE2);
+        if (template->persistent_handle) {
+            r = ifapi_authorize_object(context, hierarchy, &auth_session);
+            FAPI_SYNC(r, "Authorize hierarchy.", error_cleanup);
+
+            /* Prepare making the created primary permanent. */
+            r = Esys_EvictControl_Async(context->esys, hierarchy->handle,
+                                        context->cmd.Key_Create.handle,
+                                        auth_session, ESYS_TR_NONE,
+                                        ESYS_TR_NONE,
+                                        object->misc.key.persistent_handle);
+            goto_if_error(r, "Error Esys EvictControl", error_cleanup);
+        }
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WAIT_FOR_EVICT_CONTROL);
+        if (template->persistent_handle) {
+            /* Prepare making the loaded key permanent. */
+            r = Esys_EvictControl_Finish(context->esys, &object->handle);
+            return_try_again(r);
+            goto_if_error(r, "Evict control failed", error_cleanup);
+        }
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_FLUSH);
+        /* Flush the primary key. */
+        r = ifapi_flush_object(context, context->cmd.Key_Create.handle);
+        return_try_again(r);
+        goto_if_error(r, "Flush key", error_cleanup);
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WRITE_PREPARE);
+        SAFE_FREE(outPublic);
+
+        /* Perform esys serialization */
+        r = ifapi_esys_serialize_object(context->esys, object);
+        goto_if_error(r, "Prepare serialization", error_cleanup);
+
+        /* Check whether object already exists in key store.*/
+        r = ifapi_keystore_object_does_not_exist(&context->keystore,
+                                                 context->cmd.Key_Create.keyPath,
+                                                 object);
+        goto_if_error_reset_state(r, "Could not write: %s", error_cleanup,
+                                  context->cmd.Key_Create.keyPath);
+
+        /* Start writing the object to the key store */
+        r = ifapi_keystore_store_async(&context->keystore, &context->io,
+                                       context->cmd.Key_Create.keyPath, object);
+        goto_if_error_reset_state(r, "Could not open: %s", error_cleanup,
+                                  context->cmd.Key_Create.keyPath);
+        ifapi_cleanup_ifapi_object(object);
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WRITE);
+        /* Finish writing the key to the key store */
+        r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+        return_try_again(r);
+        return_if_error_reset_state(r, "write_finish failed");
+
+        fallthrough;
+
+    statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_CLEANUP);
+        r = ifapi_cleanup_session(context);
+        try_again_or_error_goto(r, "Cleanup", error_cleanup);
+
+        context->cmd.Key_Create.state = KEY_CREATE_INIT;
+        break;
+
+    statecasedefault(context->cmd.Key_Create.state);
+    }
+    free_string_list(context->loadKey.path_list);
+    ifapi_cleanup_ifapi_object(hierarchy);
+    SAFE_FREE(outPublic);
+    SAFE_FREE(creationData);
+    SAFE_FREE(creationHash);
+    SAFE_FREE(creationTicket);
+    SAFE_FREE(context->cmd.Key_Create.policyPath);
+    SAFE_FREE(context->cmd.Key_Create.keyPath);
+    ifapi_cleanup_ifapi_object(object);
+    ifapi_session_clean(context);
+    return TSS2_RC_SUCCESS;
+
+ error_cleanup:
+    SAFE_FREE(outPublic);
+    SAFE_FREE(creationData);
+    SAFE_FREE(creationHash);
+    SAFE_FREE(creationTicket);
+    SAFE_FREE(context->cmd.Key_Create.policyPath);
+    SAFE_FREE(context->cmd.Key_Create.keyPath);
+    free_string_list(context->loadKey.path_list);
+    ifapi_cleanup_ifapi_object(hierarchy);
+    return r;
+
 }

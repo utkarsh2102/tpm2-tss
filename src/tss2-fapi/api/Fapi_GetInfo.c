@@ -28,6 +28,8 @@ typedef struct {
     UINT32 max;
 } IFAPI_INFO_CAP;
 
+#define CAP_IDX_PT_FIXED 9
+
 static IFAPI_INFO_CAP info_cap_tab[] = {
     { "algorithms", TPM2_CAP_ALGS,  TPM2_ALG_FIRST, TPM2_MAX_CAP_ALGS},
     { "handles-transient", TPM2_CAP_HANDLES, TPM2_TRANSIENT_FIRST, TPM2_MAX_CAP_HANDLES},
@@ -112,7 +114,7 @@ Fapi_GetInfo(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_GetInfo_Finish(context, info);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -205,7 +207,7 @@ Fapi_GetInfo_Finish(
 
     TSS2_RC r;
     json_object *jso = NULL;
-    size_t capIdx;
+    size_t capIdx, i;
 
     /* Check for NULL parameters */
     check_not_null(context);
@@ -237,6 +239,18 @@ Fapi_GetInfo_Finish(
         return_try_again(r);
         goto_if_error(r, "Get capability", cleanup);
 
+        if (info_cap_tab[capIdx].capability == TPM2_CAP_TPM_PROPERTIES &&
+            info_cap_tab[capIdx].property == TPM2_PT_FIXED) {
+            /* Adapt count to number of fixed properties. */
+            for (i = 0; i <  capabilityData->data.tpmProperties.count; i++) {
+                /* TPM2_PT_MODES is the last fixed property. */
+                if (capabilityData->data.tpmProperties.tpmProperty[i].property ==  TPM2_PT_MODES) {
+                    capabilityData->data.tpmProperties.count = i + 1;
+                    break;
+                }
+            }
+        }
+
         infoObj->cap[capIdx].description = info_cap_tab[capIdx].description;
         infoObj->cap[capIdx].capability = capabilityData;
         command->property_count = 0;
@@ -248,15 +262,19 @@ Fapi_GetInfo_Finish(
             return TSS2_FAPI_RC_TRY_AGAIN;
         }
 
-        infoObj->fapi_version = "OSSTSS 2.2.x";
-        infoObj->fapi_config = "Properties of config have to specified by TCG";
+        infoObj->fapi_version = PACKAGE_STRING;
+        infoObj->fapi_config = context->config;
 
         /* Serialize the information. */
         r = ifapi_json_IFAPI_INFO_serialize(infoObj, &jso);
         goto_if_error(r, "Error serialize info object", cleanup);
 
         /* Duplicate the information to be returned to the caller. */
-        *info = strdup(json_object_to_json_string_ext(jso, JSON_C_TO_STRING_PRETTY));
+#ifdef JSON_C_TO_STRING_NOSLASHESCAPE
+        *info = strdup(json_object_to_json_string_ext(jso, JSON_C_TO_STRING_PRETTY | JSON_C_TO_STRING_NOSLASHESCAPE));
+#else
+         *info = strdup(json_object_to_json_string_ext(jso, JSON_C_TO_STRING_PRETTY));
+#endif
         goto_if_null2(*info, "Out of memory.", r, TSS2_FAPI_RC_MEMORY, cleanup);
 
         context->state = _FAPI_STATE_INIT;

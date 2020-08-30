@@ -13,17 +13,17 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** Test the ESAPI function Esys_ClearControl.
+/** Test the ESYS function Esys_ClearControl.
  *
  * The clear command will be disabled and with Esys_Clear it will
  * be checked whether clear is disabled.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_Clear() (M)
  *  - Esys_ClearControl() (M)
  *
@@ -50,8 +50,8 @@ test_esys_clear_control(ESYS_CONTEXT * esys_context)
         ESYS_TR_NONE,
         disable);
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH ||
-        (r & ~TPM2_RC_N_MASK) == TPM2_RC_HIERARCHY) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH ||
+        number_rc(r) == TPM2_RC_HIERARCHY) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         failure_return =  EXIT_SKIP;
@@ -87,6 +87,6 @@ test_esys_clear_control(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_clear_control(esys_context);
 }

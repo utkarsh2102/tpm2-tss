@@ -10,26 +10,51 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
+#include "test-fapi.h"
 
 #define PASSWORD "abc"
+#define USER_DATA "my user data"
+#define DESCRIPTION "my description"
+#define FAPI_PROFILE fapi_profile
+#define OBJECT_PATH "HS/SRK/mySignKey"
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
-    *auth = strdup(PASSWORD);
-    return_if_null(*auth, "Out of memory.", TSS2_FAPI_RC_MEMORY);
+
+    char *profile_path;
+
+    assert(description != NULL);
+    assert(userData != NULL);
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
+    int size = asprintf (&profile_path, "%s/%s", fapi_profile, OBJECT_PATH);
+    if (size == -1)
+        return TSS2_FAPI_RC_MEMORY;
+
+    assert(strlen(objectPath) == strlen(profile_path));
+    free(profile_path);
+    assert(strlen(userData) == strlen((char*)USER_DATA));
+    assert(strlen(description) == strlen(DESCRIPTION));
+
+    *auth = PASSWORD;
     return TSS2_RC_SUCCESS;
 }
 
@@ -58,13 +83,22 @@ test_fapi_key_change_auth(FAPI_CONTEXT *context)
     TSS2_RC r;
     uint8_t *signature = NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
 
     r = Fapi_Provision(context, NULL, NULL, NULL);
 
     goto_if_error(r, "Error Fapi_Provision", error);
 
-    r = Fapi_CreateKey(context, "HS/SRK/mySignKey", "sign,noDa", "", NULL);
+    r = Fapi_CreateKey(context, OBJECT_PATH, "sign,noDa", "", NULL);
     goto_if_error(r, "Error Fapi_CreateKey", error);
+
+    r = Fapi_SetDescription(context, OBJECT_PATH, DESCRIPTION);
+    goto_if_error(r, "Error Fapi_SetDescription", error);
+
+    r = Fapi_SetCertificate(context, OBJECT_PATH, "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     size_t signatureSize = 0;
 
     TPM2B_DIGEST digest = {
@@ -75,28 +109,35 @@ test_fapi_key_change_auth(FAPI_CONTEXT *context)
         }
     };
 
-    r = Fapi_ChangeAuth(context, "HS/SRK/mySignKey", PASSWORD);
+    r = Fapi_ChangeAuth(context, OBJECT_PATH, PASSWORD);
     goto_if_error(r, "Error Fapi_Provision", error);
 
-    r = Fapi_SetAuthCB(context, auth_callback, "");
+    r = Fapi_SetAuthCB(context, auth_callback, USER_DATA);
     goto_if_error(r, "Error SetPolicyAuthCallback", error);
 
-    r = Fapi_Sign(context, "HS/SRK/mySignKey", NULL,
+    r = Fapi_Sign(context, OBJECT_PATH, NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Provision", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
     Fapi_Free(publicKey);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(signature);
+    SAFE_FREE(certificate);
     return EXIT_SUCCESS;
 
 error:
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
     SAFE_FREE(signature);
+    SAFE_FREE(certificate);
     return EXIT_FAILURE;
 }
 

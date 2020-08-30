@@ -56,6 +56,7 @@
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_GetTpmBlobs(
@@ -88,7 +89,7 @@ Fapi_GetTpmBlobs(
            through all execution stages / states of this invocation. */
         r = Fapi_GetTpmBlobs_Finish(context, tpm2bPublic, tpm2bPublicSize, tpm2bPrivate,
                                     tpm2bPrivateSize, policy);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "Entity_GetTPMBlobs");
 
@@ -120,6 +121,7 @@ Fapi_GetTpmBlobs(
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_GetTpmBlobs_Async(
@@ -168,7 +170,8 @@ Fapi_GetTpmBlobs_Async(
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_TRY_AGAIN: if the asynchronous operation is not yet
  *         complete. Call this function again later.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
@@ -244,6 +247,10 @@ Fapi_GetTpmBlobs_Finish(
                         json_object_to_json_string_ext(jso, JSON_C_TO_STRING_PRETTY),
                         r, error_cleanup);
                 json_object_put(jso);
+            } else {
+                if (policy) {
+                    strdup_check(*policy, "", r, error_cleanup);
+                }
             }
 
             /* Cleanup any intermediate results and state stored in the context. */

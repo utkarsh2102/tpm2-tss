@@ -10,12 +10,14 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
+#include "test-fapi.h"
 
 #ifdef FAPI_PASSWORD
 
@@ -23,15 +25,19 @@
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
-    *auth = strdup(PASSWORD);
-    return_if_null(*auth, "Out of memory.", TSS2_FAPI_RC_MEMORY);
+
+    if (strcmp(objectPath, "P_RSA/HS/SRK/mySignKey") != 0) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "Unexpected path");
+    }
+
+    *auth = PASSWORD;
     return TSS2_RC_SUCCESS;
 }
 #else /*FAPI_PASSWORD */
@@ -64,6 +70,7 @@ test_fapi_key_create_ckda_sign(FAPI_CONTEXT *context)
 
     uint8_t *signature = NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
 
     r = Fapi_Provision(context, NULL, NULL, NULL);
     goto_if_error(r, "Error Fapi_Provision", error);
@@ -71,6 +78,11 @@ test_fapi_key_create_ckda_sign(FAPI_CONTEXT *context)
     r = Fapi_CreateKey(context, "HS/SRK/mySignKey", SIGN_TEMPLATE, "",
                        PASSWORD);
     goto_if_error(r, "Error Fapi_CreateKey", error);
+
+    r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     size_t signatureSize = 0;
 
     TPM2B_DIGEST digest = {
@@ -88,20 +100,28 @@ test_fapi_key_create_ckda_sign(FAPI_CONTEXT *context)
 
     r = Fapi_Sign(context, "HS/SRK/mySignKey", NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
 
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     return EXIT_FAILURE;
 }
 

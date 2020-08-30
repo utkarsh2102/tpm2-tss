@@ -34,6 +34,9 @@ ESYS_TR
 ifapi_get_hierary_handle(const char *path);
 
 bool
+ifapi_null_primary_p(const char *path);
+
+bool
 ifapi_hierarchy_path_p(const char *path);
 
 bool
@@ -142,6 +145,9 @@ object_with_auth(IFAPI_OBJECT *object);
 
 TSS2_RC
 ifapi_get_nv_start_index(const char *path, TPM2_HANDLE *start_nv_index);
+
+TSS2_RC
+ifapi_check_nv_index(const char *path, TPM2_HANDLE nv_index);
 
 TSS2_RC
 ifapi_check_profile_pcr_selection(
