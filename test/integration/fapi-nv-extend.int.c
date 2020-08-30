@@ -12,12 +12,14 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <string.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
+#include "test-fapi.h"
 
 #define NV_SIZE 32
 
@@ -27,15 +29,19 @@ static char *password;
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
-    *auth = strdup(password);
-    return_if_null(*auth, "Out of memory.", TSS2_FAPI_RC_MEMORY);
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
+    *auth = password;
     return TSS2_RC_SUCCESS;
 }
 
@@ -81,6 +87,9 @@ test_fapi_nv_extend(FAPI_CONTEXT *context)
 
     r = Fapi_NvRead(context, nvPathExtend, &data_dest, &dest_size, &log);
     goto_if_error(r, "Error Fapi_NvRead", error);
+    assert(data_dest != NULL);
+    assert(log != NULL);
+    assert(strlen(log) > ASSERT_SIZE);
 
     fprintf(stderr, "\nLog:\n%s\n", log);
     SAFE_FREE(data_dest);
@@ -89,8 +98,13 @@ test_fapi_nv_extend(FAPI_CONTEXT *context)
     goto_if_error(r, "Error Fapi_NV_EXTEND", error);
 
     SAFE_FREE(log);
+    data_dest = NULL;
+    log = NULL;
     r = Fapi_NvRead(context, nvPathExtend, &data_dest, &dest_size, &log);
     goto_if_error(r, "Error Fapi_NvRead", error);
+    assert(data_dest != NULL);
+    assert(log != NULL);
+    assert(strlen(log) > ASSERT_SIZE);
 
     fprintf(stderr, "\nLog:\n%s\n", log);
 
@@ -147,6 +161,7 @@ test_fapi_nv_extend(FAPI_CONTEXT *context)
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(log);
     SAFE_FREE(data_dest);
     return EXIT_FAILURE;

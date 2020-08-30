@@ -66,6 +66,7 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_CreateNv(
@@ -111,7 +112,7 @@ Fapi_CreateNv(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_CreateNv_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -154,6 +155,8 @@ Fapi_CreateNv(
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_NO_TPM if FAPI was initialized in no-TPM-mode via its
  *         config file.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 Fapi_CreateNv_Async(
@@ -214,6 +217,13 @@ Fapi_CreateNv_Async(
                            policyPath);
     goto_if_error(r, "Set key flags for NV object", error_cleanup);
 
+    if (nvCmd->public_templ.public.nvIndex) {
+        /* NV index was defined by the user, has to be checked whether the selected index
+           is appropriate for the used path. */
+        r = ifapi_check_nv_index(path, nvCmd->public_templ.public.nvIndex);
+        goto_if_error(r, "Check NV path and NV index", error_cleanup);
+    }
+
     /* Initialize the context state for this operation. */
     context->state = NV_CREATE_READ_PROFILE;
     LOG_TRACE("finished");
@@ -248,7 +258,8 @@ error_cleanup:
  *         during authorization.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_NV_TOO_SMALL if too many NV handles are defined.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
  *         is not set.
@@ -256,6 +267,8 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_PATH_ALREADY_EXISTS if the object already exists in object store.
  */
 TSS2_RC
 Fapi_CreateNv_Finish(
@@ -426,6 +439,13 @@ Fapi_CreateNv_Finish(
             /* Perform esys serialization if necessary */
             r = ifapi_esys_serialize_object(context->esys, &nvCmd->nv_object);
             goto_if_error(r, "Prepare serialization", error_cleanup);
+
+            /* Check whether object already exists in key store.*/
+            r = ifapi_keystore_object_does_not_exist(&context->keystore,
+                                                     nvCmd->nvPath,
+                                                     &nvCmd->nv_object);
+            goto_if_error_reset_state(r, "Could not write: %sh", error_cleanup,
+                                      nvCmd->nvPath);
 
             /* Start writing the NV object to the key store */
             r = ifapi_keystore_store_async(&context->keystore, &context->io,

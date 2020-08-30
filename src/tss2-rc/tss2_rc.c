@@ -825,7 +825,11 @@ tss_err_handler (TSS2_RC rc)
         /* 50 - TSS2_BASE_RC_BAD_KEY */
         "The key is bad",
         /* 51 - TSS2_BASE_RC_NO_HANDLE */
-        "No handle provided"
+        "No handle provided",
+        /* 52 - TSS2_BASE_RC_NOT_PROVISIONED */
+        "Provisioning was not executed.",
+        /* 53 - TSS2_FAPI_RC_ALREADY_PROVISIONED */
+        "Already provisioned"
   };
 
     return (rc - 1u < ARRAY_LEN(errors)) ? errors[rc - 1u] : NULL;

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -179,6 +180,9 @@ test_fapi_pcr_test(FAPI_CONTEXT *context)
     r = Fapi_PcrRead(context, 16, &pcr_digest,
                      &pcr_digest_size, &log);
     goto_if_error(r, "Error Fapi_PcrRead", error);
+    assert(pcr_digest != NULL);
+    assert(log != NULL);
+    assert(strlen(log) > ASSERT_SIZE);
 
     for (i = 0; i < ( sizeof(log_exp) / sizeof(log_exp[0]) ); i++)
         if (strcmp(log_exp[i], log) == 0)
@@ -195,11 +199,16 @@ test_fapi_pcr_test(FAPI_CONTEXT *context)
     r = pcr_reset(context, 16);
     goto_if_error(r, "Error pcr_reset", error);
 
+    pcr_digest = NULL;
+    log = NULL;
     r = Fapi_PcrRead(context, 16, &pcr_digest,
                      &pcr_digest_size, &log);
     goto_if_error(r, "Error Fapi_PcrRead", error);
+    assert(pcr_digest != NULL);
+    assert(log != NULL);
+    assert(strlen(log) > ASSERT_SIZE);
 
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(pcr_digest);
@@ -207,7 +216,7 @@ test_fapi_pcr_test(FAPI_CONTEXT *context)
     return EXIT_SUCCESS;
 
 error:
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
     SAFE_FREE(pcr_digest);
     SAFE_FREE(log);
     return EXIT_FAILURE;

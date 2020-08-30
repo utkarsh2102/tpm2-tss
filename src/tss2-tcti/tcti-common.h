@@ -57,6 +57,7 @@ typedef struct {
     tcti_state_t state;
     tpm_header_t header;
     uint8_t locality;
+    bool partial_read_supported;
     bool partial;
 } TSS2_TCTI_COMMON_CONTEXT;
 
@@ -76,7 +77,8 @@ tcti_common_down_cast (TSS2_TCTI_COMMON_CONTEXT *ctx);
  */
 TSS2_RC
 tcti_common_cancel_checks (
-    TSS2_TCTI_COMMON_CONTEXT *tcti_common);
+    TSS2_TCTI_COMMON_CONTEXT *tcti_common,
+    uint64_t magic);
 /*
  * This function performs common checks on the context structure and the
  * buffer passed into TCTI 'transmit' functions.
@@ -84,7 +86,8 @@ tcti_common_cancel_checks (
 TSS2_RC
 tcti_common_transmit_checks (
     TSS2_TCTI_COMMON_CONTEXT *tcti_common,
-    const uint8_t *command_buffer);
+    const uint8_t *command_buffer,
+    uint64_t magic);
 /*
  * This function performs common checks on the context structure, buffer and
  * size parameter passed to the TCTI 'receive' functions.
@@ -92,14 +95,16 @@ tcti_common_transmit_checks (
 TSS2_RC
 tcti_common_receive_checks (
     TSS2_TCTI_COMMON_CONTEXT *tcti_common,
-    size_t *response_size);
+    size_t *response_size,
+    uint64_t magic);
 /*
  * This function performs checks on the common context structure passed to a
  * TCTI 'set_locality' function.
  */
 TSS2_RC
 tcti_common_set_locality_checks (
-    TSS2_TCTI_COMMON_CONTEXT *tcti_common);
+    TSS2_TCTI_COMMON_CONTEXT *tcti_common,
+    uint64_t magic);
 /*
  * Just a function with the right prototype that returns the not implemented
  * RC for the TCTI layer.

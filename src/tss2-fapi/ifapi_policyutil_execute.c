@@ -217,6 +217,8 @@ ifapi_policyutil_execute_prepare(
     r = new_policy(context, policy, &current_policy);
     goto_if_error(r, "Create new policy.", error);
 
+    current_policy->pol_exec_ctx->auth_object = context->current_auth_object;
+
     r = ifapi_policyeval_execute_prepare(current_policy->pol_exec_ctx, hash_alg, policy);
     goto_if_error(r, "Prepare policy execution.", error);
 
@@ -261,6 +263,9 @@ error:
  *         is not set.
  * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 ifapi_policyutil_execute(FAPI_CONTEXT *context, ESYS_TR *session)
@@ -290,7 +295,7 @@ ifapi_policyutil_execute(FAPI_CONTEXT *context, ESYS_TR *session)
                 hash_alg = pol_util_ctx->pol_exec_ctx->hash_alg;
                 r = create_session(context, &pol_util_ctx->policy_session,
                                   hash_alg);
-                if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN) {
+                if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN) {
                     context->policy.util_current_policy = pol_util_ctx->prev;
                     return TSS2_FAPI_RC_TRY_AGAIN;
                 }
@@ -305,7 +310,7 @@ ifapi_policyutil_execute(FAPI_CONTEXT *context, ESYS_TR *session)
         statecase(pol_util_ctx->state, POLICY_UTIL_EXEC_POLICY);
             r = ifapi_policyeval_execute(context->esys,
                                          pol_util_ctx->pol_exec_ctx);
-            if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN) {
+            if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN) {
                 context->policy.util_current_policy = pol_util_ctx->prev;
                 return TSS2_FAPI_RC_TRY_AGAIN;
             }

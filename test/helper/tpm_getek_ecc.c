@@ -37,7 +37,7 @@ int
 main (int argc, char *argv[])
 {
     TSS2_RC rc;
-    TSS2_SYS_CONTEXT *sapi_context;
+    TSS2_SYS_CONTEXT *sys_context;
     TSS2L_SYS_AUTH_COMMAND auth_cmd = {
         .auths = {{ .sessionHandle = TPM2_RS_PW }},
         .count = 1
@@ -103,13 +103,13 @@ main (int argc, char *argv[])
     if (sanity_check_test_opts (&opts) != 0)
         exit (1);
 
-    sapi_context = sapi_init_from_opts (&opts);
-    if (sapi_context == NULL)
+    sys_context = sys_init_from_opts (&opts);
+    if (sys_context == NULL)
         exit (1);
 
     /* Generate the EK key */
 
-    rc = Tss2_Sys_CreatePrimary(sapi_context, TPM2_RH_ENDORSEMENT, &auth_cmd,
+    rc = Tss2_Sys_CreatePrimary(sys_context, TPM2_RH_ENDORSEMENT, &auth_cmd,
                                 &in_sensitive, &in_public, NULL, &creation_pcr,
                                 &handle, &out_public, NULL, NULL, NULL, NULL, &auth_rsp);
     if (rc != TSS2_RC_SUCCESS) {
@@ -117,13 +117,13 @@ main (int argc, char *argv[])
         exit(1);
     }
 
-    rc = Tss2_Sys_FlushContext(sapi_context, handle);
+    rc = Tss2_Sys_FlushContext(sys_context, handle);
     if (rc != TSS2_RC_SUCCESS) {
         LOG_ERROR("TPM FlushContext FAILED: 0x%"PRIx32, rc);
         exit(1);
     }
 
-    sapi_teardown_full (sapi_context);
+    sys_teardown_full (sys_context);
 
     /* Convert the key from out_public to PEM */
 
@@ -138,8 +138,20 @@ main (int argc, char *argv[])
 
     EC_KEY *ecc_key = EC_KEY_new();
     BIGNUM *x = NULL, *y = NULL;
-    BIO *bio = BIO_new_fp(stdout, BIO_NOCLOSE);
+    BIO *bio;
+    FILE *out = NULL;
     int nid;
+
+    if (argc == 2) {
+        out = fopen(argv[1], "w");
+        if (!out) {
+            LOG_ERROR("Can not open file %s", argv[1]);
+            exit(1);
+        }
+        bio = BIO_new_fp(out, BIO_NOCLOSE);
+    }
+    else
+        bio = BIO_new_fp(stdout, BIO_NOCLOSE);
 
     nid = EC_curve_nist2nid("P-256");
     EC_GROUP *ecgroup = EC_GROUP_new_by_curve_name(nid);
@@ -181,6 +193,7 @@ main (int argc, char *argv[])
     BN_free(x);
     EVP_PKEY_free(evp);
     BIO_free(bio);
+    fclose(out);
 
     return 0;
 }

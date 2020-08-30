@@ -9,6 +9,8 @@
 #endif
 
 #include <stdlib.h>
+#include <assert.h>
+#include <string.h>
 
 #include "tss2_fapi.h"
 
@@ -26,18 +28,23 @@
 
 static TSS2_RC
 auth_callback(
-    FAPI_CONTEXT *context,
+    char const *objectPath,
     char const *description,
-    char **auth,
+    const char **auth,
     void *userData)
 {
     (void)description;
     (void)userData;
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
     char *pw = PASSWORD;
     if (!pw)
         return TSS2_FAPI_RC_GENERAL_FAILURE;
 
-    *auth = strdup(pw);
+    *auth = pw;
     return TSS2_RC_SUCCESS;
 }
 
@@ -65,9 +72,16 @@ test_fapi_key_create_sign_password_provision(FAPI_CONTEXT *context)
     char *sigscheme = NULL;
     uint8_t       *publicblob = NULL;
     uint8_t       *privateblob = NULL;
+    char          *policy = NULL;
     uint8_t *signature = NULL;
     char    *publicKey = NULL;
+    char    *certificate = NULL;
     char *path_list = NULL;
+    char *policy_name = "/policy/pol_pcr16_0";
+    char *policy_file = TOP_SOURCEDIR "/test/data/fapi/policy/pol_pcr16_0.json";
+    FILE *stream = NULL;
+    char *json_policy = NULL;
+    long policy_size;
 
     size_t         publicsize;
     size_t         privatesize;
@@ -103,7 +117,30 @@ test_fapi_key_create_sign_password_provision(FAPI_CONTEXT *context)
     r = Fapi_SetAuthCB(context, auth_callback, NULL);
     goto_if_error(r, "Error SetPolicyAuthCallback", error);
 
-    r = Fapi_CreateKey(context, "HS/SRK/mySignKey", SIGN_TEMPLATE, "",
+    stream = fopen(policy_file, "r");
+    if (!stream) {
+        LOG_ERROR("File %s does not exist", policy_file);
+        goto error;
+    }
+    fseek(stream, 0L, SEEK_END);
+    policy_size = ftell(stream);
+    fclose(stream);
+    json_policy = malloc(policy_size + 1);
+    goto_if_null(json_policy,
+            "Could not allocate memory for the JSON policy",
+            TSS2_FAPI_RC_MEMORY, error);
+    stream = fopen(policy_file, "r");
+    ssize_t ret = read(fileno(stream), json_policy, policy_size);
+    if (ret != policy_size) {
+        LOG_ERROR("IO error %s.", policy_file);
+        goto error;
+    }
+    json_policy[policy_size] = '\0';
+
+    r = Fapi_Import(context, policy_name, json_policy);
+    goto_if_error(r, "Error Fapi_Import", error);
+
+    r = Fapi_CreateKey(context, "HS/SRK/mySignKey", SIGN_TEMPLATE, policy_name,
                        PASSWORD);
 
     goto_if_error(r, "Error Fapi_CreateKey", error);
@@ -119,19 +156,30 @@ test_fapi_key_create_sign_password_provision(FAPI_CONTEXT *context)
 
     r = Fapi_GetTpmBlobs(context,  "HS/SRK/mySignKey", &publicblob,
                          &publicsize,
-                         &privateblob, &privatesize, NULL);
+                         &privateblob, &privatesize, &policy);
     goto_if_error(r, "Error Fapi_GetTpmBlobs", error);
-
-    r = Fapi_Sign(context, "HS/SRK/mySignKey", sigscheme,
-                  &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
-    goto_if_error(r, "Error Fapi_Sign", error);
+    assert(publicblob != NULL);
+    assert(privateblob != NULL);
+    assert(policy != NULL);
+    assert(strlen(policy) > ASSERT_SIZE);
 
     r = Fapi_SetCertificate(context, "HS/SRK/mySignKey", cert);
     goto_if_error(r, "Error Fapi_SetCertificate", error);
 
+    r = Fapi_Sign(context, "HS/SRK/mySignKey", sigscheme,
+                  &digest.buffer[0], digest.size, &signature, &signatureSize,
+                  &publicKey, &certificate);
+    goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
+
     r = Fapi_List(context, "/", &path_list);
     goto_if_error(r, "Error Fapi_Delete", error);
+    assert(path_list != NULL);
+    assert(strlen(path_list) > ASSERT_SIZE);
 
     fprintf(stderr, "\nPathList:\n%s\n", path_list);
 
@@ -144,18 +192,24 @@ test_fapi_key_create_sign_password_provision(FAPI_CONTEXT *context)
 
     SAFE_FREE(publicblob);
     SAFE_FREE(privateblob);
+    SAFE_FREE(policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(path_list);
+    SAFE_FREE(json_policy);
     return EXIT_SUCCESS;
 
 error:
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
     SAFE_FREE(publicblob);
     SAFE_FREE(privateblob);
+    SAFE_FREE(policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(path_list);
+    SAFE_FREE(json_policy);
     return EXIT_FAILURE;
 }
 

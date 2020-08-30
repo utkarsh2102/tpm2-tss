@@ -45,7 +45,7 @@ static TSS2_RC marshal_tab(BYTE const *src, uint8_t buffer[],
              *offset);
         return TSS2_RC_SUCCESS;
     } else if (buffer_size < local_offset || buffer_size - local_offset < size) {
-        LOG_ERROR("buffer_size: %zu with offset: %zu are insufficient for "
+        LOG_DEBUG("buffer_size: %zu with offset: %zu are insufficient for "
              "object of size %zu", buffer_size, local_offset, size);
         return TSS2_MU_RC_INSUFFICIENT_BUFFER;
     }
@@ -148,7 +148,7 @@ static TSS2_RC unmarshal_tab(uint8_t const buffer[], size_t buffer_size,
              *offset);
         return TSS2_RC_SUCCESS;
     } else if (buffer_size < local_offset || size > buffer_size - local_offset) {
-        LOG_WARNING("buffer_size: %zu with offset: %zu are insufficient for "
+        LOG_DEBUG("buffer_size: %zu with offset: %zu are insufficient for "
              "object of size %zu", buffer_size, local_offset, size);
         return TSS2_MU_RC_INSUFFICIENT_BUFFER;
     }
@@ -277,13 +277,14 @@ static TSS2_RC unmarshal_null(uint8_t const buffer[], size_t buffer_size,
 TSS2_RC Tss2_MU_##type##_Marshal(type const *src, uint32_t selector, uint8_t buffer[], \
                                  size_t buffer_size, size_t *offset) \
 { \
-    TSS2_RC ret = TSS2_RC_SUCCESS; \
+    TSS2_RC ret = TSS2_MU_RC_BAD_VALUE; \
 \
     if (src == NULL) { \
         LOG_WARNING("src param is NULL"); \
         return TSS2_MU_RC_BAD_REFERENCE; \
     } \
 \
+    LOG_DEBUG("Marshalling " #type ", selector %x", selector); \
     switch (selector) { \
     case sel: \
     ret = fn(op src->m, buffer, buffer_size, offset); \
@@ -318,7 +319,12 @@ TSS2_RC Tss2_MU_##type##_Marshal(type const *src, uint32_t selector, uint8_t buf
     case sel11: \
     ret = fn11(op11 src->m11, buffer, buffer_size, offset); \
     break; \
+    case TPM2_ALG_NULL: \
+    LOG_DEBUG("ALG_NULL selector skipping"); \
+    ret = TSS2_RC_SUCCESS; \
+    break; \
     default: \
+    LOG_DEBUG("wrong selector %x return error", selector); \
     break; \
     } \
     return ret; \
@@ -368,8 +374,9 @@ TSS2_RC Tss2_MU_##type##_Marshal(type const *src, uint32_t selector, uint8_t buf
 TSS2_RC Tss2_MU_##type##_Unmarshal(uint8_t const buffer[], size_t buffer_size, \
                                    size_t *offset, uint32_t selector, type *dest) \
 { \
-    TSS2_RC ret = TSS2_RC_SUCCESS; \
+    TSS2_RC ret = TSS2_MU_RC_BAD_VALUE; \
 \
+    LOG_DEBUG("Unmarshalling " #type ", selector %x", selector); \
     switch (selector) { \
     case sel: \
     ret = fn(buffer, buffer_size, offset, dest ? &dest->m : NULL); \
@@ -404,7 +411,12 @@ TSS2_RC Tss2_MU_##type##_Unmarshal(uint8_t const buffer[], size_t buffer_size, \
     case sel11: \
     ret = fn11(buffer, buffer_size, offset, dest ? &dest->m11 : NULL); \
     break; \
+    case TPM2_ALG_NULL: \
+    LOG_DEBUG("ALG_NULL selector skipping"); \
+    ret = TSS2_RC_SUCCESS; \
+    break; \
     default: \
+    LOG_DEBUG("wrong selector %x return error", selector); \
     break; \
     } \
     return ret; \
@@ -486,21 +498,27 @@ TPMU_MARSHAL2(TPMU_SYM_KEY_BITS,
     TPM2_ALG_AES, VAL, aes, Tss2_MU_UINT16_Marshal,
     TPM2_ALG_SM4, VAL, sm4, Tss2_MU_UINT16_Marshal,
     TPM2_ALG_CAMELLIA, VAL, camellia, Tss2_MU_UINT16_Marshal,
-    TPM2_ALG_XOR, VAL, exclusiveOr, Tss2_MU_UINT16_Marshal)
+    TPM2_ALG_XOR, VAL, exclusiveOr, Tss2_MU_UINT16_Marshal,
+    TPM2_ALG_SYMCIPHER, VAL, sym, Tss2_MU_UINT16_Marshal)
 TPMU_UNMARSHAL2(TPMU_SYM_KEY_BITS,
     TPM2_ALG_AES, aes, Tss2_MU_UINT16_Unmarshal,
     TPM2_ALG_SM4, sm4, Tss2_MU_UINT16_Unmarshal,
     TPM2_ALG_CAMELLIA, camellia, Tss2_MU_UINT16_Unmarshal,
-    TPM2_ALG_XOR, exclusiveOr, Tss2_MU_UINT16_Unmarshal)
+    TPM2_ALG_XOR, exclusiveOr, Tss2_MU_UINT16_Unmarshal,
+    TPM2_ALG_SYMCIPHER, sym, Tss2_MU_UINT16_Unmarshal)
 
 TPMU_MARSHAL2(TPMU_SYM_MODE,
     TPM2_ALG_AES, VAL, aes, Tss2_MU_UINT16_Marshal,
     TPM2_ALG_SM4, VAL, sm4, Tss2_MU_UINT16_Marshal,
-    TPM2_ALG_CAMELLIA, VAL, camellia, Tss2_MU_UINT16_Marshal)
+    TPM2_ALG_CAMELLIA, VAL, camellia, Tss2_MU_UINT16_Marshal,
+    TPM2_ALG_XOR, ADDR, sym, marshal_null,
+    TPM2_ALG_SYMCIPHER, VAL, sym, Tss2_MU_UINT16_Marshal)
 TPMU_UNMARSHAL2(TPMU_SYM_MODE,
     TPM2_ALG_AES, aes, Tss2_MU_UINT16_Unmarshal,
     TPM2_ALG_SM4, sm4, Tss2_MU_UINT16_Unmarshal,
-    TPM2_ALG_CAMELLIA, camellia, Tss2_MU_UINT16_Unmarshal)
+    TPM2_ALG_CAMELLIA, camellia, Tss2_MU_UINT16_Unmarshal,
+    TPM2_ALG_XOR, sym, unmarshal_null,
+    TPM2_ALG_SYMCIPHER, sym, Tss2_MU_UINT16_Unmarshal)
 
 TPMU_MARSHAL2(TPMU_SIG_SCHEME,
     TPM2_ALG_RSASSA, ADDR, rsassa, Tss2_MU_TPMS_SCHEME_HASH_Marshal,
@@ -537,6 +555,7 @@ TPMU_MARSHAL2(TPMU_ASYM_SCHEME,
     TPM2_ALG_ECDAA, ADDR, ecdaa, Tss2_MU_TPMS_SCHEME_ECDAA_Marshal,
     TPM2_ALG_SM2, ADDR, sm2, Tss2_MU_TPMS_SCHEME_HASH_Marshal,
     TPM2_ALG_ECSCHNORR, ADDR, ecschnorr, Tss2_MU_TPMS_SCHEME_HASH_Marshal,
+    TPM2_ALG_RSAES, ADDR, rsaes, marshal_null,
     TPM2_ALG_OAEP, ADDR, oaep, Tss2_MU_TPMS_SCHEME_HASH_Marshal)
 TPMU_UNMARSHAL2(TPMU_ASYM_SCHEME,
     TPM2_ALG_ECDH, ecdh, Tss2_MU_TPMS_SCHEME_HASH_Unmarshal,
@@ -547,6 +566,7 @@ TPMU_UNMARSHAL2(TPMU_ASYM_SCHEME,
     TPM2_ALG_ECDAA, ecdaa, Tss2_MU_TPMS_SCHEME_ECDAA_Unmarshal,
     TPM2_ALG_SM2, sm2, Tss2_MU_TPMS_SCHEME_HASH_Unmarshal,
     TPM2_ALG_ECSCHNORR, ecschnorr, Tss2_MU_TPMS_SCHEME_HASH_Unmarshal,
+    TPM2_ALG_RSAES, rsaes, unmarshal_null,
     TPM2_ALG_OAEP, oaep, Tss2_MU_TPMS_SCHEME_HASH_Unmarshal)
 
 TPMU_MARSHAL2(TPMU_SCHEME_KEYEDHASH,

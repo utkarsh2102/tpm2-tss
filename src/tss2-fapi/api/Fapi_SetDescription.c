@@ -48,6 +48,7 @@
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_SetDescription(
@@ -75,7 +76,7 @@ Fapi_SetDescription(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_SetDescription_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "Path_SetDescription");
 
@@ -108,6 +109,7 @@ Fapi_SetDescription(
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_SetDescription_Async(
@@ -180,6 +182,8 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_SetDescription_Finish(
@@ -201,6 +205,9 @@ Fapi_SetDescription_Finish(
             r = ifapi_keystore_load_finish(&context->keystore, &context->io, object);
             return_try_again(r);
             goto_if_error_reset_state(r, "read_finish failed", error_cleanup);
+
+            r = ifapi_initialize_object(context->esys, object);
+            goto_if_error_reset_state(r, "Initialize key object", error_cleanup);
 
             /* Add new description to object and save object */
             ifapi_set_description(object, command->description);

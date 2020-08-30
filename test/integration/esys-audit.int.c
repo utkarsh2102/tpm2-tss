@@ -13,12 +13,12 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** This test is intended to test the ESAPI audit commands.
+/** This test is intended to test the ESYS audit commands.
  *
  * First a key for signing the audit digest is computed.
  * A audit session is started, and for the command GetCapability the
@@ -28,7 +28,7 @@
  *
  *\b Note: platform authorization needed.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_CreatePrimary() (M)
  *  - Esys_FlushContext() (M)
  *  - Esys_GetCapability() (M)
@@ -231,7 +231,7 @@ test_esys_audit(ESYS_CONTEXT * esys_context)
         &setList,
         &clearList);
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         failure_return =  EXIT_SKIP;
@@ -281,6 +281,6 @@ test_esys_audit(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_audit(esys_context);
 }

@@ -89,6 +89,7 @@ cleanup:
  * @retval TSS2_FAPI_RC_MEMORY: if memory could not be allocated.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_BAD_REFERENCE a invalid null pointer is passed.
  */
 TSS2_RC
 ifapi_policy_store_initialize(
@@ -99,13 +100,17 @@ ifapi_policy_store_initialize(
     char *policy_dir = NULL;
 
     memset(pstore, 0, sizeof(IFAPI_POLICY_STORE));
+    check_not_null(config_policydir);
+
     strdup_check(pstore->policydir, config_policydir, r, error);
 
-    r = ifapi_asprintf(&policy_dir, "%s%s%s", config_policydir, IFAPI_FILE_DELIM,
-                       IFAPI_POLICY_PATH);
+    r = ifapi_asprintf(&policy_dir, "%s%s%s", config_policydir,
+                       (strcmp(&config_policydir[strlen(config_policydir) - 1],
+                        IFAPI_FILE_DELIM) == 0) ? "" : IFAPI_FILE_DELIM,
+					   IFAPI_POLICY_PATH);
     goto_if_error(r, "Out of memory.", error);
 
-    r = ifapi_io_check_create_dir(policy_dir);
+    r = ifapi_io_check_create_dir(policy_dir, FAPI_READ);
     goto_if_error2(r, "Policy directory %s can't be created.", error, policy_dir);
 
     SAFE_FREE(policy_dir);

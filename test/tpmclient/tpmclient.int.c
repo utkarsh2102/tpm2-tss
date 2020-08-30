@@ -17,10 +17,15 @@
 
 #include "tss2_sys.h"
 #include "tss2_tcti_device.h"
+#ifdef TCTI_MSSIM
 #include "tss2_tcti_mssim.h"
+#endif /* TCTI_MSSIM */
+#ifdef TCTI_SWTPM
+#include "tss2_tcti_swtpm.h"
+#endif /* TCTI_SWTPM */
 
 #include "../integration/context-util.h"
-#include "../integration/sapi-util.h"
+#include "../integration/sys-util.h"
 #include "../integration/session-util.h"
 #include "util/tss2_endian.h"
 #include "sysapi_util.h"
@@ -96,15 +101,20 @@ static void ErrorHandler(UINT32 rval, char *errorString, int errorStringSize)
     snprintf(errorString, errorStringSize, "%s Error: 0x%x\n", levelString, rval);
 }
 
-static void Cleanup()
+#define EXIT_SKIP 77
+
+static void Cleanup_exit(int rc)
 {
     if (resMgrTctiContext != NULL) {
-        tcti_platform_command(resMgrTctiContext, MS_SIM_POWER_OFF);
         tcti_teardown(resMgrTctiContext);
         resMgrTctiContext = NULL;
     }
+    exit(rc == EXIT_SKIP ? EXIT_SKIP : 1);
+}
 
-    exit(1);
+static void Cleanup()
+{
+    Cleanup_exit(1);
 }
 
 static void InitSysContextFailure()
@@ -120,7 +130,7 @@ static void InitSysContextFailure()
       ErrorHandler((rval), error_string, ERROR_STR_LEN); \
       LOG_INFO("passing case: \tFAILED!  %s (%s@%u)",  \
                error_string, __FUNCTION__, __LINE__ ); \
-      Cleanup(); \
+      Cleanup_exit(rval); \
     } else {     \
       LOG_INFO("passing case: \tPASSED! (%s@%u)", \
                __FUNCTION__, __LINE__); \
@@ -133,7 +143,7 @@ static void InitSysContextFailure()
       ErrorHandler((rval), error_string, ERROR_STR_LEN); \
       LOG_INFO("\tfailing case: FAILED! %s  Ret code s/b: 0x%x, but was: 0x%x (%s@%u)", \
                error_string, (expected_rval), (rval), __FUNCTION__, __LINE__ ); \
-      Cleanup(); \
+      Cleanup_exit(rval); \
     } else { \
       LOG_INFO("\tfailing case: PASSED! (%s@%u)", \
            __FUNCTION__, __LINE__); \
@@ -144,11 +154,27 @@ static TSS2_RC TpmReset()
 {
     TSS2_RC rval = TSS2_RC_SUCCESS;
 
+#ifdef TCTI_SWTPM
+    rval = Tss2_Tcti_Swtpm_Reset(resMgrTctiContext);
+
+    /* If TCTI is not swtpm, bad context is returned. */
+    if (rval != TSS2_TCTI_RC_BAD_CONTEXT) {
+        return rval;
+    } else {
+        LOG_WARNING("TPM Reset failed: wrong TCTI type retrying with mssim...");
+    }
+#endif /* TCTI_SWTPM */
+
+#ifdef TCTI_MSSIM
     rval = (TSS2_RC)tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_OFF );
-    if( rval == TSS2_RC_SUCCESS )
-    {
+    if (rval == TSS2_RC_SUCCESS) {
         rval = (TSS2_RC)tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_ON );
     }
+#endif /* TCTI_MSSIM */
+    if (rval == TSS2_TCTI_RC_BAD_CONTEXT) {
+        rval = EXIT_SKIP;
+    }
+
     return rval;
 }
 
@@ -193,10 +219,8 @@ static void TestTpmStartup()
 
 
     /* Cycle power using simulator interface. */
-    rval = tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_OFF );
-    CheckPassed( rval );
-    rval = tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_ON );
-    CheckPassed( rval );
+    rval = TpmReset();
+    CheckPassed(rval);
 
 
     /*
@@ -210,10 +234,8 @@ static void TestTpmStartup()
     CheckPassed( rval );
 
     /* Cycle power using simulator interface. */
-    rval = tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_OFF );
-    CheckPassed( rval );
-    rval = tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_ON );
-    CheckPassed( rval );
+    rval = TpmReset();
+    CheckPassed(rval);
 
 
     /*
@@ -825,7 +847,7 @@ static void TestHierarchyControl()
     rval = Tss2_Sys_NV_DefineSpace( sysContext, TPM2_RH_PLATFORM, &sessionsData, &nvAuth, &publicInfo, 0 );
     CheckPassed( rval );
 
-    /* Test SAPI for case where nvPublic.size != 0 */
+    /* Test SYS for case where nvPublic.size != 0 */
     nvPublic.size = 0xff;
     INIT_SIMPLE_TPM2B_SIZE( nvName );
     rval = Tss2_Sys_NV_ReadPublic( sysContext, TPM20_INDEX_TEST1, 0, &nvPublic, &nvName, 0 );
@@ -1725,7 +1747,7 @@ static void GetSetDecryptParamTests()
     LOG_INFO("GET/SET DECRYPT PARAM TESTS:" );
 
     /* Create two sysContext structures. */
-    decryptParamTestSysContext = sapi_init_from_tcti_ctx(resMgrTctiContext);
+    decryptParamTestSysContext = sys_init_from_tcti_ctx(resMgrTctiContext);
     if (decryptParamTestSysContext == NULL)
         InitSysContextFailure();
 
@@ -1881,7 +1903,7 @@ static void GetSetDecryptParamTests()
     rval = Tss2_Sys_SetDecryptParam( decryptParamTestSysContext, 1, &( nvWriteData.buffer[0] ) );
     CheckFailed( rval, TSS2_SYS_RC_BAD_SIZE );
 
-    sapi_teardown(decryptParamTestSysContext);
+    sys_teardown(decryptParamTestSysContext);
 }
 
 static void SysFinalizeTests()
@@ -1900,7 +1922,7 @@ static void GetContextSizeTests()
 
     LOG_INFO("SYS GETCONTEXTSIZE TESTS:" );
 
-    testSysContext = sapi_init_from_tcti_ctx(resMgrTctiContext);
+    testSysContext = sys_init_from_tcti_ctx(resMgrTctiContext);
     if (testSysContext == NULL)
         InitSysContextFailure();
 
@@ -1910,7 +1932,7 @@ static void GetContextSizeTests()
     rval = Tss2_Sys_GetTestResult_Prepare(testSysContext);
     CheckPassed(rval);
 
-    sapi_teardown(testSysContext);
+    sys_teardown(testSysContext);
 }
 
 static void GetTctiContextTests()
@@ -1921,7 +1943,7 @@ static void GetTctiContextTests()
 
     LOG_INFO("SYS GETTCTICONTEXT TESTS:" );
 
-    testSysContext = sapi_init_from_tcti_ctx(resMgrTctiContext);
+    testSysContext = sys_init_from_tcti_ctx(resMgrTctiContext);
     if (testSysContext == NULL)
         InitSysContextFailure();
 
@@ -1931,7 +1953,7 @@ static void GetTctiContextTests()
     rval = Tss2_Sys_GetTctiContext(0, &tctiContext);
     CheckFailed(rval, TSS2_SYS_RC_BAD_REFERENCE);
 
-    sapi_teardown(testSysContext);
+    sys_teardown(testSysContext);
 }
 
 static void GetSetEncryptParamTests()
@@ -2113,7 +2135,7 @@ static void EcEphemeralTest()
 
     LOG_INFO("EC Ephemeral TESTS:" );
 
-    /* Test SAPI for case of Q size field not being set to 0. */
+    /* Test SYS for case of Q size field not being set to 0. */
     INIT_SIMPLE_TPM2B_SIZE( Q );
     rval = Tss2_Sys_EC_Ephemeral( sysContext, 0, TPM2_ECC_BN_P256, &Q, &counter, 0 );
     CheckFailed( rval, TSS2_SYS_RC_BAD_VALUE );
@@ -2124,14 +2146,19 @@ static void EcEphemeralTest()
 }
 
 int
-test_invoke (TSS2_SYS_CONTEXT *sapi_context)
+test_invoke (TSS2_SYS_CONTEXT *sys_context)
 {
     TSS2_RC rval = TSS2_RC_SUCCESS;
 
-    sysContext = sapi_context;
-    rval = Tss2_Sys_GetTctiContext (sapi_context, &resMgrTctiContext);
+#if !defined(TCTI_SWTPM) && !defined(TCTI_MSSIM)
+    /* SKIP */
+    return EXIT_SKIP;
+#endif
+
+    sysContext = sys_context;
+    rval = Tss2_Sys_GetTctiContext (sys_context, &resMgrTctiContext);
     if (rval != TSS2_RC_SUCCESS) {
-        printf ("Failed to get TCTI context from sapi_context: 0x%" PRIx32
+        printf ("Failed to get TCTI context from sys_context: 0x%" PRIx32
                 "\n", rval);
         return 1;
     }
@@ -2143,10 +2170,7 @@ test_invoke (TSS2_SYS_CONTEXT *sapi_context)
     nullSessionNonceOut.size = 0;
     nullSessionNonce.size = 0;
 
-    rval = tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_OFF );
-    CheckPassed(rval);
-
-    rval = tcti_platform_command( resMgrTctiContext, MS_SIM_POWER_ON );
+    rval = TpmReset();
     CheckPassed(rval);
 
     SysFinalizeTests();

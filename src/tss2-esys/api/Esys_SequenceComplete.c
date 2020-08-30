@@ -77,7 +77,7 @@ Esys_SequenceComplete(
     ESYS_TR shandle2,
     ESYS_TR shandle3,
     const TPM2B_MAX_BUFFER *buffer,
-    TPMI_RH_HIERARCHY hierarchy,
+    ESYS_TR hierarchy,
     TPM2B_DIGEST **result,
     TPMT_TK_HASHCHECK **validation)
 {
@@ -101,10 +101,10 @@ Esys_SequenceComplete(
         r = Esys_SequenceComplete_Finish(esysContext, result, validation);
         /* This is just debug information about the reattempt to finish the
            command */
-        if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
+        if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
             LOG_DEBUG("A layer below returned TRY_AGAIN: %" PRIx32
                       " => resubmitting command", r);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Restore the timeout value to the original value */
     esysContext->timeout = timeouttmp;
@@ -151,7 +151,7 @@ Esys_SequenceComplete_Async(
     ESYS_TR shandle2,
     ESYS_TR shandle3,
     const TPM2B_MAX_BUFFER *buffer,
-    TPMI_RH_HIERARCHY hierarchy)
+    ESYS_TR hierarchy)
 {
     TSS2_RC r;
     LOG_TRACE("context=%p, sequenceHandle=%"PRIx32 ", buffer=%p,"
@@ -159,12 +159,22 @@ Esys_SequenceComplete_Async(
               esysContext, sequenceHandle, buffer, hierarchy);
     TSS2L_SYS_AUTH_COMMAND auths;
     RSRC_NODE_T *sequenceHandleNode;
+    TPMI_RH_HIERARCHY tpm_hierarchy;
 
     /* Check context, sequence correctness and set state to error for now */
     if (esysContext == NULL) {
         LOG_ERROR("esyscontext is NULL.");
         return TSS2_ESYS_RC_BAD_REFERENCE;
     }
+
+    r = iesys_handle_to_tpm_handle(hierarchy, &tpm_hierarchy);
+    if (r != TSS2_RC_SUCCESS) {
+        if (!iesys_is_platform_handle(hierarchy)) {
+            return r;
+        }
+        tpm_hierarchy = hierarchy;
+    }
+
     r = iesys_check_sequence_async(esysContext);
     if (r != TSS2_RC_SUCCESS)
         return r;
@@ -184,7 +194,7 @@ Esys_SequenceComplete_Async(
                                           (sequenceHandleNode == NULL)
                                            ? TPM2_RH_NULL
                                            : sequenceHandleNode->rsrc.handle,
-                                          buffer, hierarchy);
+                                          buffer, tpm_hierarchy);
     return_state_if_error(r, _ESYS_STATE_INIT, "SAPI Prepare returned error.");
 
     /* Calculate the cpHash Values */
@@ -291,7 +301,7 @@ Esys_SequenceComplete_Finish(
 
     /*Receive the TPM response and handle resubmissions if necessary. */
     r = Tss2_Sys_ExecuteFinish(esysContext->sys, esysContext->timeout);
-    if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN) {
+    if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN) {
         LOG_DEBUG("A layer below returned TRY_AGAIN: %" PRIx32, r);
         esysContext->state = _ESYS_STATE_SENT;
         goto error_cleanup;

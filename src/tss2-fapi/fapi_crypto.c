@@ -835,6 +835,7 @@ rsa_verify_signature(
         if (1 != EVP_PKEY_verify(ctx, signature, signatureSize, digest, digestSize)) {
             /* padding scheme was not appropriate, next should be tried */
             EVP_PKEY_CTX_free(ctx);
+            ctx = NULL;
         } else {
             /* Verification with selected padding scheme was successful */
             r = TSS2_RC_SUCCESS;
@@ -845,7 +846,8 @@ rsa_verify_signature(
     r = TSS2_FAPI_RC_SIGNATURE_VERIFICATION_FAILED;
 
 cleanup:
-    EVP_PKEY_CTX_free(ctx);
+    if (ctx)
+        EVP_PKEY_CTX_free(ctx);
     return r;
 }
 
@@ -1672,10 +1674,8 @@ cleanup:
  * @retval TSS2_RC_SUCCESS on success
  * @retval TSS2_FAPI_RC_BAD_REFERENCE if certBuffer or pemCert is NULL
  * @retval TSS2_FAPI_RC_MEMORY if memory could not be allocated
- * @retval TSS2_FAPI_RC_BAD_VALUE, if the certificate is invalid
+ * @retval TSS2_FAPI_RC_BAD_VALUE if the certificate is invalid
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an error occurs in the crypto library
- * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
- *         the function.
  */
 TSS2_RC
 ifapi_cert_to_pem(
@@ -2103,11 +2103,11 @@ ifapi_get_tpm_key_fingerprint(
     size_t hashSize;
     size_t fingerPrintSize;
 
-    if (!(hashSize = ifapi_hash_get_digest_size(hashAlg))) {
+    hashSize = ifapi_hash_get_digest_size(hashAlg);
+    if (!hashSize)
         goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
                    "Unsupported hash algorithm (%" PRIu16 ")", cleanup,
                    hashAlg);
-    }
 
     evpPublicKey = EVP_PKEY_new();
     goto_if_null2(evpPublicKey, "Out of memory.", r, TSS2_FAPI_RC_MEMORY, cleanup);

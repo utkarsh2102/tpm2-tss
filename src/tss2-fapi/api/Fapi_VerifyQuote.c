@@ -58,6 +58,9 @@
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
  * @retval TSS2_FAPI_RC_SIGNATURE_VERIFICATION_FAILED if the signature could not
  *         be verified
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_VerifyQuote(
@@ -95,7 +98,7 @@ Fapi_VerifyQuote(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_VerifyQuote_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "Key_VerifyQuote");
 
@@ -134,6 +137,9 @@ Fapi_VerifyQuote(
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_VerifyQuote_Async(
@@ -178,6 +184,10 @@ Fapi_VerifyQuote_Async(
     /* Helpful alias pointers */
     IFAPI_PCR * command = &context->cmd.pcr;
 
+    if (qualifyingDataSize > sizeof(command->qualifyingData.buffer)) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "qualifyingDataSize too large.");
+    }
+
     r = ifapi_non_tpm_mode_init(context);
     return_if_error(r, "Initialize VerifyQuote");
 
@@ -201,7 +211,7 @@ Fapi_VerifyQuote_Async(
 
     /* Load the key for verification from the keystore. */
     r = ifapi_keystore_load_async(&context->keystore, &context->io, publicKeyPath);
-    return_if_error2(r, "Could not open: %s", publicKeyPath);
+    goto_if_error(r, "Could not open publicKeyPath", error_cleanup);
 
     /* Initialize the context state for this operation. */
     context->state = VERIFY_QUOTE_READ;
@@ -263,7 +273,7 @@ Fapi_VerifyQuote_Finish(
         statecase(context->state, VERIFY_QUOTE_READ);
             r = ifapi_keystore_load_finish(&context->keystore, &context->io, &key_object);
             return_try_again(r);
-            return_if_error_reset_state(r, "read_finish failed");
+            goto_if_error_reset_state(r, "read_finish failed", error_cleanup);
 
             /* Recalculate the quote-info and attest2b buffer. */
             r = ifapi_get_quote_info(command->quoteInfo, &attest2b,
@@ -290,7 +300,9 @@ Fapi_VerifyQuote_Finish(
 
             /* Parse the logData JSON. */
             command->event_list = json_tokener_parse(context->cmd.pcr.logData);
-            return_if_null(command->event_list, "Json error.", TSS2_FAPI_RC_BAD_VALUE);
+            if (!command->event_list) {
+                goto_error(r, TSS2_FAPI_RC_BAD_VALUE, "Bad value for logData", error_cleanup);
+            }
 
             /* Recalculate and verify the PCR digests. */
             r = ifapi_calculate_pcr_digest(command->event_list,

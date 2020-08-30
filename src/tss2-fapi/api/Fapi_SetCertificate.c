@@ -53,6 +53,9 @@
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_SetCertificate(
@@ -80,7 +83,7 @@ Fapi_SetCertificate(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_SetCertificate_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "Key_SetCertificate");
 
@@ -115,6 +118,9 @@ Fapi_SetCertificate(
  *         during authorization.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_SetCertificate_Async(
@@ -182,6 +188,10 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 Fapi_SetCertificate_Finish(
@@ -219,6 +229,9 @@ Fapi_SetCertificate_Finish(
                 SAFE_FREE(key_object->misc.key.certificate);
                 key_object->misc.key.certificate = *pem_cert_dup;
             }
+
+            r = ifapi_initialize_object(context->esys, key_object);
+            goto_if_error_reset_state(r, "Initialize key object", error_cleanup);
 
             /* Perform esys serialization if necessary */
             r = ifapi_esys_serialize_object(context->esys, key_object);

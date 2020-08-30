@@ -13,16 +13,16 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** Test the ESAPI functions related to TPM locks.
+/** Test the ESYS functions related to TPM locks.
  *
  *\b Note: platform authorization needed.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_DictionaryAttackLockReset() (M)
  *  - Esys_DictionaryAttackParameters() (M)
  *  - Esys_NV_GlobalWriteLock() (O)
@@ -69,7 +69,7 @@ test_esys_lock(ESYS_CONTEXT * esys_context)
         goto error;
     }
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         return EXIT_SKIP;
@@ -83,6 +83,6 @@ test_esys_lock(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_lock(esys_context);
 }

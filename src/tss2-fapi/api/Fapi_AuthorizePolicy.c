@@ -59,6 +59,7 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_AuthorizePolicy(
@@ -104,7 +105,7 @@ Fapi_AuthorizePolicy(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_AuthorizePolicy_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -171,6 +172,13 @@ Fapi_AuthorizePolicy_Async(
     check_not_null(context);
     check_not_null(policyPath);
     check_not_null(keyPath);
+    if (policyRefSize > 0) {
+        check_not_null(policyRef);
+    }
+
+    if (policyRefSize > sizeof(policy->policyRef.buffer)) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "PolicyRef too large.");
+    }
 
     /* Reset all context-internal session state information. */
     r = ifapi_session_init(context);
@@ -228,6 +236,9 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_AuthorizePolicy_Finish(
@@ -346,7 +357,7 @@ Fapi_AuthorizePolicy_Finish(
         statecase(context->state, AUTHORIZE_NEW_WRITE_POLICY);
             r = ifapi_policy_store_store_finish(&context->pstore, &context->io);
             return_try_again(r);
-            return_if_error_reset_state(r, "write_finish failed");
+            goto_if_error_reset_state(r, "write_finish failed", cleanup);
 
             fallthrough;
 

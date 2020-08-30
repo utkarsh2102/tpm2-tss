@@ -57,6 +57,13 @@
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
  *         is not set.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
  */
 TSS2_RC
 Fapi_CreateKey(
@@ -100,7 +107,7 @@ Fapi_CreateKey(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_CreateKey_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -142,6 +149,8 @@ Fapi_CreateKey(
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_NO_TPM if FAPI was initialized in no-TPM-mode via its
  *         config file.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 Fapi_CreateKey_Async(
@@ -158,10 +167,15 @@ Fapi_CreateKey_Async(
     LOG_TRACE("authValue: %s", authValue);
 
     TSS2_RC r;
+    TPMA_OBJECT *attributes;
+    bool is_primary;
+    bool in_null_hierarchy;
 
     /* Check for NULL parameters */
     check_not_null(context);
     check_not_null(path);
+
+    attributes = &context->cmd.Key_Create.public_templ.public.publicArea.objectAttributes;
 
     /* Reset all context-internal session state information. */
     r = ifapi_session_init(context);
@@ -177,12 +191,41 @@ Fapi_CreateKey_Async(
     r = ifapi_set_key_flags(type ? type : "",
                             (policyPath && strcmp(policyPath, "") != 0) ? true : false,
                             &context->cmd.Key_Create.public_templ);
-    return_if_error(r, "Set key flags for key");
+    goto_if_error(r, "Set key flags for key", error_cleanup);
+
+    /* If neither sign nor decrypt is set both flags will
+       sign_encrypt and decrypt have to be set. */
+    if (!(*attributes & TPMA_OBJECT_SIGN_ENCRYPT) &&
+        !(*attributes & TPMA_OBJECT_DECRYPT)) {
+        *attributes |= TPMA_OBJECT_SIGN_ENCRYPT;
+        *attributes |= TPMA_OBJECT_DECRYPT;
+    }
+
+    r = ifapi_get_key_properties(context, path, &is_primary, &in_null_hierarchy);
+    goto_if_error(r, "Check primary path.", error_cleanup);
+
+    if (in_null_hierarchy && context->cmd.Key_Create.public_templ.persistent_handle) {
+        /* Keys in the null hierarchy cannot be persistent. */
+        goto_error(r, TSS2_FAPI_RC_BAD_VALUE,
+                   "Key %s in the NULL hiearchy cannot be persistent.",
+                   error_cleanup, path);
+    }
 
     /* Initialize the context state for this operation. */
-    context->state = KEY_CREATE;
+    if (is_primary) {
+         context->state = KEY_CREATE_PRIMARY;
+         context->cmd.Key_Create.state = KEY_CREATE_PRIMARY_INIT;
+    } else {
+        context->state = KEY_CREATE;
+    }
     LOG_TRACE("finished");
     return TSS2_RC_SUCCESS;
+
+ error_cleanup:
+    SAFE_FREE(context->cmd.Key_Create.policyPath);
+    SAFE_FREE(context->cmd.Key_Create.keyPath);
+    free_string_list(context->loadKey.path_list);
+    return r;
 }
 
 /** Asynchronous finish function for Fapi_CreateKey
@@ -206,6 +249,17 @@ Fapi_CreateKey_Async(
  * @retval TSS2_FAPI_RC_AUTHORIZATION_UNKNOWN if a required authorization callback
  *         is not set.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occured.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
+ * @retval TSS2_FAPI_RC_AUTHORIZATION_FAILED if the authorization attempt fails.
+ * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
+ *         was not successful.
+ * @retval TSS2_FAPI_RC_PATH_ALREADY_EXISTS if the object already exists in object store.
  */
 TSS2_RC
 Fapi_CreateKey_Finish(
@@ -234,6 +288,14 @@ Fapi_CreateKey_Finish(
             ifapi_cleanup_ifapi_object(&context->loadKey.auth_object);
             context->state = _FAPI_STATE_INIT;
             LOG_TRACE("finished");
+            return TSS2_RC_SUCCESS;
+
+        statecase(context->state, KEY_CREATE_PRIMARY);
+        r = ifapi_create_primary(context, &command->public_templ);
+            return_try_again(r);
+            goto_if_error(r, "Key create", error_cleanup);
+
+            context->state = _FAPI_STATE_INIT;
             return TSS2_RC_SUCCESS;
 
         statecasedefault(context->state);

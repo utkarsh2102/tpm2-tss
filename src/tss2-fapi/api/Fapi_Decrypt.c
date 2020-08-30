@@ -64,6 +64,9 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_Decrypt(
@@ -109,7 +112,7 @@ Fapi_Decrypt(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_Decrypt_Finish(context, plainText, plainTextSize);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -173,6 +176,7 @@ Fapi_Decrypt_Async(
     return_if_error(r, "Initialize Decrypt");
 
     command->object_handle = ESYS_TR_NONE;
+    command->plainText = NULL;
 
     goto_if_error(r, "Invalid cipher object.", error_cleanup);
 
@@ -228,6 +232,9 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_Decrypt_Finish(
@@ -323,27 +330,32 @@ Fapi_Decrypt_Finish(
 
             /* Duplicate the decrypted plaintext for returning to the user. */
             if (plainTextSize)
-                *plainTextSize = tpmPlainText->size;
+                command->plainTextSize = tpmPlainText->size;
             if (plainText) {
-                *plainText = malloc(tpmPlainText->size);
-                goto_if_null(*plainText, "Out of memory", TSS2_FAPI_RC_MEMORY, error_cleanup);
+                command->plainText = malloc(tpmPlainText->size);
+                goto_if_null(command->plainText, "Out of memory",
+                             TSS2_FAPI_RC_MEMORY, error_cleanup);
 
-                memcpy(*plainText, &tpmPlainText->buffer[0], tpmPlainText->size);
+                memcpy(command->plainText, &tpmPlainText->buffer[0], tpmPlainText->size);
                 SAFE_FREE(tpmPlainText);
             }
 
             /* Flush the used key. */
-            r = Esys_FlushContext_Async(context->esys,
-                                        command->key_handle);
-            goto_if_error(r, "Error: FlushContext", error_cleanup);
+            if (!command->key_object->misc.key.persistent_handle) {
+                r = Esys_FlushContext_Async(context->esys,
+                                            command->key_handle);
+                goto_if_error(r, "Error: FlushContext", error_cleanup);
+            }
 
             fallthrough;
 
         statecase(context->state, DATA_DECRYPT_WAIT_FOR_FLUSH);
-            r = Esys_FlushContext_Finish(context->esys);
-            return_try_again(r);
+            if (!command->key_object->misc.key.persistent_handle) {
+                r = Esys_FlushContext_Finish(context->esys);
+                return_try_again(r);
 
-            goto_if_error(r, "Error: FlushContext", error_cleanup);
+                goto_if_error(r, "Error: FlushContext", error_cleanup);
+            }
             command->key_handle = ESYS_TR_NONE;
             fallthrough;
 
@@ -352,6 +364,10 @@ Fapi_Decrypt_Finish(
             r = ifapi_cleanup_session(context);
             try_again_or_error_goto(r, "Cleanup", error_cleanup);
 
+            if (plainText)
+                *plainText = command->plainText;
+            if (plainTextSize)
+                *plainTextSize = command->plainTextSize;
             break;
 
         statecasedefault(context->state);
@@ -382,6 +398,7 @@ error_cleanup:
     ifapi_cleanup_ifapi_object(command->key_object);
     SAFE_FREE(command->keyPath);
     SAFE_FREE(command->in_data);
+    SAFE_FREE(command->plainText);
 
     /* Cleanup of context related objects */
     if (command->key_handle != ESYS_TR_NONE)

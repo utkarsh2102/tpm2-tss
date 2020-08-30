@@ -14,17 +14,17 @@
 #include "tss2_mu.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** This test is intended to test the ESAPI policy commands related to
+/** This test is intended to test the ESYS policy commands related to
  *  signed authorization actions.
  *
  * Esys_PolicySigned, Esys_PolicyTicket, and Esys_PolicySecret.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_CreatePrimary() (M)
  *  - Esys_FlushContext() (M)
  *  - Esys_HashSequenceStart() (M)
@@ -231,7 +231,7 @@ test_esys_policy_ticket(ESYS_CONTEXT * esys_context)
                               ESYS_TR_NONE,
                               ESYS_TR_NONE,
                               (const TPM2B_MAX_BUFFER *)&expiration2b,
-                              TPM2_RH_OWNER,
+                              ESYS_TR_RH_OWNER,
                               &signed_digest,
                               &validation
                               );
@@ -409,6 +409,6 @@ test_esys_policy_ticket(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_policy_ticket(esys_context);
 }

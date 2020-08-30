@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -26,9 +27,13 @@
 
 static bool cb_called = false;
 
+#define OBJECT_PATH "HS/SRK/mySignKey"
+#define USER_DATA "my user data"
+#define DESCRIPTION "PolicyAuthorize"
+
 static TSS2_RC
 branch_callback(
-    FAPI_CONTEXT *context,
+    char   const *objectPath,
     char   const *description,
     char  const **branchNames,
     size_t        numBranches,
@@ -37,6 +42,25 @@ branch_callback(
 {
     (void) description;
     (void) userData;
+
+    char *profile_path;
+
+    assert(description != NULL);
+    assert(userData != NULL);
+    assert(branchNames != NULL);
+
+    if (!objectPath) {
+        return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
+    }
+
+    int size = asprintf (&profile_path, "%s/%s", fapi_profile, OBJECT_PATH);
+    if (size == -1)
+        return TSS2_FAPI_RC_MEMORY;
+
+    assert(strlen(objectPath) == strlen(profile_path));
+    free(profile_path);
+    assert(strlen(userData) == strlen((char*)USER_DATA));
+    assert(strlen(description) == strlen(DESCRIPTION));
 
     if (numBranches != 2) {
         LOG_ERROR("Wrong number of branches");
@@ -102,6 +126,7 @@ test_fapi_key_create_policy_authorize_sign(FAPI_CONTEXT *context)
 
     uint8_t *signature = NULL;
     char *publicKey = NULL;
+    char *certificate = NULL;
     char *pathList = NULL;
 
 
@@ -111,7 +136,7 @@ test_fapi_key_create_policy_authorize_sign(FAPI_CONTEXT *context)
     r = pcr_reset(context, 16);
     goto_if_error(r, "Error pcr_reset", error);
 
-    r = Fapi_SetBranchCB(context, branch_callback, NULL);
+    r = Fapi_SetBranchCB(context, branch_callback, USER_DATA);
     goto_if_error(r, "Error SetPolicybranchselectioncallback", error);
 
     /* Read in the first policy */
@@ -225,7 +250,7 @@ test_fapi_key_create_policy_authorize_sign(FAPI_CONTEXT *context)
     goto_if_error(r, "Error Fapi_CreateKey", error);
 
     /* Create the actual key */
-    r = Fapi_CreateKey(context, "HS/SRK/mySignKey", "sign, noda",
+    r = Fapi_CreateKey(context, OBJECT_PATH, "sign, noda",
                        policy_name_authorize_outer, NULL);
     goto_if_error(r, "Error Fapi_CreateKey", error);
 
@@ -248,6 +273,10 @@ test_fapi_key_create_policy_authorize_sign(FAPI_CONTEXT *context)
                        "", NULL);
     goto_if_error(r, "Error Fapi_CreateKey", error);
 
+    r = Fapi_SetCertificate(context, OBJECT_PATH, "-----BEGIN "\
+        "CERTIFICATE-----[...]-----END CERTIFICATE-----");
+    goto_if_error(r, "Error Fapi_CreateKey", error);
+
     /* Use the key */
     size_t signatureSize = 0;
 
@@ -261,44 +290,64 @@ test_fapi_key_create_policy_authorize_sign(FAPI_CONTEXT *context)
         }
     };
 
-    r = Fapi_Sign(context, "HS/SRK/mySignKey", NULL,
+    r = Fapi_Sign(context, OBJECT_PATH, NULL,
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
-                  &publicKey, NULL);
+                  &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
+    assert(signature != NULL);
+    assert(publicKey != NULL);
+    assert(certificate != NULL);
+    assert(strlen(publicKey) > ASSERT_SIZE);
+    assert(strlen(certificate) > ASSERT_SIZE);
 
     r = Fapi_List(context, "/", &pathList);
     goto_if_error(r, "Error Fapi_List", error);
+    assert(pathList != NULL);
+    assert(strlen(pathList) > ASSERT_SIZE);
+
     SAFE_FREE(pathList);
 
+    pathList = NULL;
     r = Fapi_List(context, "/SRK/", &pathList);
     goto_if_error(r, "Error Fapi_List", error);
+    assert(pathList != NULL);
+    assert(strlen(pathList) > ASSERT_SIZE);
     fprintf(stderr, "\n%s\n", pathList);
     SAFE_FREE(pathList);
 
+    pathList = NULL;
     r = Fapi_List(context, "/HS/", &pathList);
     goto_if_error(r, "Error Fapi_List", error);
+    assert(pathList != NULL);
+    assert(strlen(pathList) > ASSERT_SIZE);
     fprintf(stderr, "\n%s\n", pathList);
     SAFE_FREE(pathList);
 
     LOG_WARNING("Next is a failure-test, and we expect errors in the log");
+    pathList = NULL;
     r = Fapi_List(context, "XXX", &pathList);
     if (r == TSS2_RC_SUCCESS) {
         LOG_ERROR("Path XXX was found");
         goto error;
     }
+    assert(pathList == NULL);
     SAFE_FREE(pathList);
 
+    pathList = NULL;
     r = Fapi_List(context, "/HS/", &pathList);
     goto_if_error(r, "Error Fapi_List", error);
+    assert(pathList != NULL);
+    assert(strlen(pathList) > ASSERT_SIZE);
     fprintf(stderr, "\n%s\n", pathList);
     SAFE_FREE(pathList);
 
     /* Cleanup */
-    r = Fapi_Delete(context, "/HS/SRK");
+    r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);
 
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
 
     if (!cb_called) {
         LOG_ERROR("Branch selection callback was not called.");
@@ -308,11 +357,13 @@ test_fapi_key_create_policy_authorize_sign(FAPI_CONTEXT *context)
     return EXIT_SUCCESS;
 
 error:
+    Fapi_Delete(context, "/");
     SAFE_FREE(json_policy);
     SAFE_FREE(signature);
     SAFE_FREE(publicKey);
+    SAFE_FREE(certificate);
     SAFE_FREE(pathList);
-    Fapi_Delete(context, "/HS/SRK");
+    Fapi_Delete(context, "/");
     return EXIT_FAILURE;
 }
 

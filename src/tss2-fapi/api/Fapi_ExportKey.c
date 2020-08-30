@@ -60,7 +60,8 @@
  *         during authorization.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
@@ -70,6 +71,7 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_ExportKey(
@@ -114,7 +116,7 @@ Fapi_ExportKey(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_ExportKey_Finish(context, exportedData);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -160,6 +162,9 @@ Fapi_ExportKey(
  *         during authorization.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_ExportKey_Async(
@@ -191,6 +196,7 @@ Fapi_ExportKey_Async(
                  r, error_cleanup);
     strdup_check(command->pathToPublicKeyOfNewParent,
                  pathToPublicKeyOfNewParent, r, error_cleanup);
+    command->exportedData = NULL;
 
     if (!pathToPublicKeyOfNewParent) {
         /* Only public key of KeyToDuplocate will be exported */
@@ -236,7 +242,8 @@ error_cleanup:
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_TRY_AGAIN: if the asynchronous operation is not yet
  *         complete. Call this function again later.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
@@ -251,6 +258,7 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_NO_TPM if FAPI was initialized in no-TPM-mode via its
  *         config file.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_ExportKey_Finish(
@@ -308,11 +316,13 @@ Fapi_ExportKey_Finish(
             r = ifapi_json_IFAPI_OBJECT_serialize(pubKey, &jsoOut);
             goto_if_error(r, "Error serialize FAPI KEY object", cleanup);
 
-            *exportedData = strdup(json_object_to_json_string_ext(jsoOut,
-                                                                  JSON_C_TO_STRING_PRETTY));
-            goto_if_null2(*exportedData, "Converting json to string", r,
+            command->exportedData
+                = strdup(json_object_to_json_string_ext(jsoOut,
+                                                        JSON_C_TO_STRING_PRETTY));
+            goto_if_null2(command->exportedData, "Converting json to string", r,
                           TSS2_FAPI_RC_MEMORY, cleanup);
 
+            *exportedData = command->exportedData;
             break;
 
         statecase(context->state, EXPORT_KEY_READ_PUB_KEY_PARENT);
@@ -336,12 +346,6 @@ Fapi_ExportKey_Finish(
             command->public_parent = parentKeyObject.misc.ext_pub_key.public;
             ifapi_cleanup_ifapi_object(&parentKeyObject);
 
-            /* Initialize a session used for authorization and parameter encryption. */
-            r = ifapi_get_sessions_async(context,
-                                         IFAPI_SESSION_GENEK | IFAPI_SESSION1,
-                                         TPMA_SESSION_DECRYPT, 0);
-            goto_if_error_reset_state(r, "Create sessions", cleanup);
-
             fallthrough;
 
         statecase(context->state, EXPORT_KEY_WAIT_FOR_KEY);
@@ -357,7 +361,7 @@ Fapi_ExportKey_Finish(
             r = Esys_LoadExternal_Async(context->esys,
                                         ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
                                         NULL,   &command->public_parent,
-                                        TPM2_RH_OWNER);
+                                        ESYS_TR_RH_OWNER);
             goto_if_error(r, "LoadExternal_Async", cleanup);
 
             fallthrough;
@@ -411,7 +415,7 @@ Fapi_ExportKey_Finish(
             /* For the policy added no cleanup is needed. The cleanup will
                be done with the object cleanup. */
             keyTree->policy = command->key_object->policy;
-            r = ifapi_get_json(context, exportTree, exportedData);
+            r = ifapi_get_json(context, exportTree, &command->exportedData);
             goto_if_error2(r, "get JSON for exported data.", cleanup);
 
             fallthrough;
@@ -437,6 +441,7 @@ Fapi_ExportKey_Finish(
             r = ifapi_cleanup_session(context);
             try_again_or_error_goto(r, "Cleanup", cleanup);
 
+            *exportedData = command->exportedData;
             break;
 
         statecasedefault(context->state);
@@ -450,6 +455,8 @@ cleanup:
     if (jsoOut != NULL) {
         json_object_put(jsoOut);
     }
+    if (r)
+        SAFE_FREE(command->exportedData);
     context->duplicate_key = NULL;
     context->state = _FAPI_STATE_INIT;
     ifapi_cleanup_ifapi_object(&parentKeyObject);

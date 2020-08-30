@@ -22,6 +22,8 @@
 #include "util/log.h"
 #include "util/aux_util.h"
 
+#define FAPI_MAX_APP_DATA_SIZE 10*1024*1024
+
 /** One-Call function for Fapi_SetAppData
  *
  * Associates an arbitrary data blob with a given object.
@@ -50,6 +52,7 @@
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_SetAppData(
@@ -78,7 +81,7 @@ Fapi_SetAppData(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_SetAppData_Finish(context);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "SetAppData");
 
@@ -113,6 +116,7 @@ Fapi_SetAppData(
  * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
  *         during authorization.
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
  */
 TSS2_RC
 Fapi_SetAppData_Async(
@@ -134,6 +138,12 @@ Fapi_SetAppData_Async(
     /* Check for NULL parameters */
     check_not_null(context);
     check_not_null(path);
+
+    /* App data is restricted to 10MB. */
+    if (appDataSize > FAPI_MAX_APP_DATA_SIZE) {
+        LOG_ERROR("Only 10MB are allowd for app data.");
+        return TSS2_FAPI_RC_BAD_VALUE;
+    }
 
     /* Check for invalid parameters */
     if (!appData && appDataSize != 0) {
@@ -190,10 +200,13 @@ error_cleanup:
  *         internal operations or return parameters.
  * @retval TSS2_FAPI_RC_TRY_AGAIN: if the asynchronous operation is not yet
  *         complete. Call this function again later.
- * @retval TSS2_FAPI_RC_BAD_PATH if the used path in inappropriate-
+ * @retval TSS2_FAPI_RC_BAD_PATH if a path is used in inappropriate context
+ *         or contains illegal characters.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
+ *         during authorization.
  */
 TSS2_RC
 Fapi_SetAppData_Finish(
@@ -216,6 +229,9 @@ Fapi_SetAppData_Finish(
             r = ifapi_keystore_load_finish(&context->keystore, &context->io, object);
             return_try_again(r);
             return_if_error_reset_state(r, "read_finish failed");
+
+            r = ifapi_initialize_object(context->esys, object);
+            goto_if_error_reset_state(r, "Initialize key object", error_cleanup);
 
             /* Depending on the object type get the correct appData pointer. */
             switch (object->objectType) {

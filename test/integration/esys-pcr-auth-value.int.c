@@ -13,7 +13,7 @@
 #include "tss2_esys.h"
 
 #include "esys_iutil.h"
-#include "test-esapi.h"
+#include "test-esys.h"
 #define LOGMODULE test
 #include "util/log.h"
 #include "util/aux_util.h"
@@ -22,7 +22,7 @@
  *
  *\b Note: platform authorization needed.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_PCR_SetAuthPolicy() (O)
  *  - Esys_PCR_SetAuthValue() (O)
  *
@@ -86,7 +86,7 @@ test_esys_pcr_auth_value(ESYS_CONTEXT * esys_context)
         TPM2_ALG_SHA1,
         pcrHandle_handle);
 
-    if ((r & ~TPM2_RC_N_MASK) == TPM2_RC_BAD_AUTH) {
+    if (number_rc(r) == TPM2_RC_BAD_AUTH) {
         /* Platform authorization not possible test will be skipped */
         LOG_WARNING("Platform authorization not possible.");
         failure_return = EXIT_SKIP;
@@ -101,6 +101,6 @@ test_esys_pcr_auth_value(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
     return test_esys_pcr_auth_value(esys_context);
 }

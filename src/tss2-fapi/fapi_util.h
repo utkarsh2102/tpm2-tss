@@ -33,6 +33,9 @@ TSS2_RC
 ifapi_get_session_finish(ESYS_CONTEXT *esys, ESYS_TR *session,
                          TPMA_SESSION flags);
 
+const char *
+ifapi_get_object_path(IFAPI_OBJECT *object);
+
 TSS2_RC
 ifapi_set_auth(
     FAPI_CONTEXT *context,
@@ -54,7 +57,8 @@ ifapi_init_primary_async(
 TSS2_RC
 ifapi_init_primary_finish(
     FAPI_CONTEXT *context,
-    TSS2_KEY_TYPE ktype);
+    TSS2_KEY_TYPE ktype,
+    IFAPI_OBJECT *hierarchy);
 
 TSS2_RC
 ifapi_session_init(FAPI_CONTEXT *context);
@@ -96,6 +100,9 @@ ifapi_merge_profile_into_template(
 
 TSS2_RC
 ifapi_load_key_async(FAPI_CONTEXT *context, size_t position);
+
+TSS2_RC
+ifapi_load_parent_keys_async(FAPI_CONTEXT *context, char const *keyPath);
 
 TSS2_RC
 ifapi_load_key_finish(FAPI_CONTEXT *context, bool flush_parent);
@@ -253,5 +260,15 @@ ifapi_get_description(IFAPI_OBJECT *object, char **description);
 
 void
 ifapi_set_description(IFAPI_OBJECT *object, char *description);
+
+TSS2_RC
+ifapi_get_key_properties(
+    FAPI_CONTEXT *context,
+    char const *key_path,
+    bool *is_primary,
+    bool *in_null_hierarchy);
+
+TSS2_RC
+ifapi_create_primary(FAPI_CONTEXT *context, IFAPI_KEY_TEMPLATE *template);
 
 #endif /* FAPI_UTIL_H */

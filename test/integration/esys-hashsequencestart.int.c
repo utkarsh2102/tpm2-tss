@@ -17,10 +17,10 @@
 #include "util/log.h"
 #include "util/aux_util.h"
 
-/** Test the ESAPI commands HashSequenceStart, SequenceUpdate,
+/** Test the ESYS commands HashSequenceStart, SequenceUpdate,
  *  and SequenceComplete.
  *
- * Tested ESAPI commands:
+ * Tested ESYS commands:
  *  - Esys_FlushContext() (M)
  *  - Esys_HashSequenceStart() (M)
  *  - Esys_SequenceComplete() (M)
@@ -30,12 +30,13 @@
  * Used compiler defines: TEST_SESSION
  *
  * @param[in,out] esys_context The ESYS_CONTEXT.
+ * @param[in] hierarchy the hierarchy to start the hash sequence in.
  * @retval EXIT_FAILURE
  * @retval EXIT_SUCCESS
  */
 
 int
-test_esys_hashsequencestart(ESYS_CONTEXT * esys_context)
+test_esys_hashsequencestart(ESYS_CONTEXT * esys_context, ESYS_TR hierarchy)
 {
     TSS2_RC r;
 
@@ -112,7 +113,7 @@ test_esys_hashsequencestart(ESYS_CONTEXT * esys_context)
                               ESYS_TR_NONE,
                               ESYS_TR_NONE,
                               &buffer,
-                              TPM2_RH_OWNER,
+                              hierarchy,
                               &result,
                               &validation
                               );
@@ -142,6 +143,14 @@ test_esys_hashsequencestart(ESYS_CONTEXT * esys_context)
 }
 
 int
-test_invoke_esapi(ESYS_CONTEXT * esys_context) {
-    return test_esys_hashsequencestart(esys_context);
+test_invoke_esys(ESYS_CONTEXT * esys_context) {
+    int rc = test_esys_hashsequencestart(esys_context, ESYS_TR_RH_OWNER);
+    if (rc)
+        return rc;
+
+    /*
+     * Test that backwards compat API change is still working, see:
+     *   - https://github.com/tpm2-software/tpm2-tss/issues/1750
+     */
+    return test_esys_hashsequencestart(esys_context, TPM2_RH_OWNER);
 }

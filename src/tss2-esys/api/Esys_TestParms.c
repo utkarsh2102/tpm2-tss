@@ -85,16 +85,18 @@ Esys_TestParms(
         r = Esys_TestParms_Finish(esysContext);
         /* This is just debug information about the reattempt to finish the
            command */
-        if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN)
+        if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN)
             LOG_DEBUG("A layer below returned TRY_AGAIN: %" PRIx32
                       " => resubmitting command", r);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Restore the timeout value to the original value */
     esysContext->timeout = timeouttmp;
-    return_if_error(r, "Esys Finish");
+    if (!tss2_is_expected_error(r)) {
+        return_if_error(r, "Esys Finish");
+    }
 
-    return TSS2_RC_SUCCESS;
+    return r;
 }
 
 /** Asynchronous function for TPM2_TestParms
@@ -237,7 +239,7 @@ Esys_TestParms_Finish(
 
     /*Receive the TPM response and handle resubmissions if necessary. */
     r = Tss2_Sys_ExecuteFinish(esysContext->sys, esysContext->timeout);
-    if ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN) {
+    if (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN) {
         LOG_DEBUG("A layer below returned TRY_AGAIN: %" PRIx32, r);
         esysContext->state = _ESYS_STATE_SENT;
         return r;
@@ -266,7 +268,9 @@ Esys_TestParms_Finish(
     }
     /* The following is the "regular error" handling. */
     if (iesys_tpm_error(r)) {
-        LOG_WARNING("Received TPM Error");
+        if (!tss2_is_expected_error(r)) {
+            LOG_WARNING("Received TPM Error");
+        }
         esysContext->state = _ESYS_STATE_INIT;
         return r;
     } else if (r != TSS2_RC_SUCCESS) {

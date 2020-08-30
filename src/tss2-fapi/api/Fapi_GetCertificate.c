@@ -52,6 +52,9 @@
  * @retval TSS2_FAPI_RC_TRY_AGAIN if an I/O operation is not finished yet and
  *         this function needs to be called again.
  * @retval TSS2_FAPI_RC_GENERAL_FAILURE if an internal error occurred.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_GetCertificate(
@@ -80,7 +83,7 @@ Fapi_GetCertificate(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_GetCertificate_Finish(context, x509certData);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     return_if_error_reset_state(r, "Key_GetCertificate");
 
@@ -113,6 +116,9 @@ Fapi_GetCertificate(
  * @retval TSS2_FAPI_RC_KEY_NOT_FOUND if a key was not found.
  * @retval TSS2_FAPI_RC_BAD_VALUE if an invalid value was passed into
  *         the function.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_GetCertificate_Async(
@@ -192,9 +198,12 @@ Fapi_GetCertificate_Finish(
             if (keyObject->objectType == IFAPI_EXT_PUB_KEY_OBJ) {
                 strdup_check(*x509certData, keyObject->misc.ext_pub_key.certificate,
                         r, error_cleanup);
-            } else if (x509certData) {
+            } else if (keyObject->objectType == IFAPI_KEY_OBJ)  {
                 strdup_check(*x509certData, keyObject->misc.key.certificate,
                         r, error_cleanup);
+            } else {
+                strdup_check(*x509certData, "",
+                             r, error_cleanup);
             }
 
             context->state = _FAPI_STATE_INIT;

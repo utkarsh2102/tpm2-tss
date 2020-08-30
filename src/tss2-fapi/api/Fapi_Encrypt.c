@@ -68,6 +68,9 @@
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_Encrypt(
@@ -114,7 +117,7 @@ Fapi_Encrypt(
         /* Repeatedly call the finish function, until FAPI has transitioned
            through all execution stages / states of this invocation. */
         r = Fapi_Encrypt_Finish(context, cipherText, cipherTextSize);
-    } while ((r & ~TSS2_RC_LAYER_MASK) == TSS2_BASE_RC_TRY_AGAIN);
+    } while (base_rc(r) == TSS2_BASE_RC_TRY_AGAIN);
 
     /* Reset the ESYS timeout to non-blocking, immediate response. */
     r2 = Esys_SetTimeout(context->esys, 0);
@@ -192,6 +195,7 @@ Fapi_Encrypt_Async(
 
     command->in_dataSize = plainTextSize;
     command->key_handle = ESYS_TR_NONE;
+    command->cipherText = NULL;
 
     /* Initialize the context state for this operation. */
     context->state = DATA_ENCRYPT_WAIT_FOR_PROFILE;
@@ -235,6 +239,9 @@ error_cleanup:
  * @retval TSS2_FAPI_RC_POLICY_UNKNOWN if policy search for a certain policy digest
  *         was not successful.
  * @retval TSS2_ESYS_RC_* possible error codes of ESAPI.
+ * @retval TSS2_FAPI_RC_NOT_PROVISIONED FAPI was not provisioned.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the path is used in inappropriate context
+ *         or contains illegal characters.
  */
 TSS2_RC
 Fapi_Encrypt_Finish(
@@ -296,32 +303,32 @@ Fapi_Encrypt_Finish(
             if (encKeyObject->misc.key.public.publicArea.type == TPM2_ALG_RSA) {
                 TPM2B_DATA null_data = { .size = 0, .buffer = {} };
                 TPM2B_PUBLIC_KEY_RSA *rsa_message = (TPM2B_PUBLIC_KEY_RSA *)&context->aux_data;
-                rsa_message->size = context->cmd.Data_EncryptDecrypt.in_dataSize;
                 size_t key_size =
                     encKeyObject->misc.key.public.publicArea.parameters.rsaDetail.keyBits / 8;
-                if (rsa_message->size <= key_size) {
-                    memcpy(&rsa_message->buffer[0], context->cmd.Data_EncryptDecrypt.in_data,
-                           context->cmd.Data_EncryptDecrypt.in_dataSize);
-
-                    /* Received plain text will be encrypted */
-                    r = Esys_TRSess_SetAttributes(context->esys, context->session1,
-                                              TPMA_SESSION_CONTINUESESSION |  TPMA_SESSION_DECRYPT,
-                                                  0xff);
-                    goto_if_error_reset_state(r, "Set session attributes.", error_cleanup);
-
-                    r = Esys_RSA_Encrypt_Async(context->esys,
-                                               context->cmd.Data_EncryptDecrypt.key_handle,
-                                               context->session1, ESYS_TR_NONE, ESYS_TR_NONE,
-                                               rsa_message,
-                                               &command->profile->rsa_decrypt_scheme,
-                                               &null_data);
-                    goto_if_error(r, "Error esys rsa encrypt", error_cleanup);
-
-                    context-> state = DATA_ENCRYPT_WAIT_FOR_RSA_ENCRYPTION;
-                } else {
-                    goto_error_reset_state(r, TSS2_FAPI_RC_NOT_IMPLEMENTED,
+                if (context->cmd.Data_EncryptDecrypt.in_dataSize > key_size) {
+                    goto_error_reset_state(r, TSS2_FAPI_RC_BAD_VALUE,
                                            "Size to big for RSA encryption.", error_cleanup);
                 }
+                rsa_message->size = context->cmd.Data_EncryptDecrypt.in_dataSize;
+                memcpy(&rsa_message->buffer[0], context->cmd.Data_EncryptDecrypt.in_data,
+                       context->cmd.Data_EncryptDecrypt.in_dataSize);
+
+                /* Received plain text will be encrypted */
+                r = Esys_TRSess_SetAttributes(context->esys, context->session1,
+                                              TPMA_SESSION_CONTINUESESSION |  TPMA_SESSION_DECRYPT,
+                                                  0xff);
+                goto_if_error_reset_state(r, "Set session attributes.", error_cleanup);
+
+                r = Esys_RSA_Encrypt_Async(context->esys,
+                                           context->cmd.Data_EncryptDecrypt.key_handle,
+                                           context->session1, ESYS_TR_NONE, ESYS_TR_NONE,
+                                           rsa_message,
+                                           &command->profile->rsa_decrypt_scheme,
+                                           &null_data);
+                goto_if_error(r, "Error esys rsa encrypt", error_cleanup);
+
+                context-> state = DATA_ENCRYPT_WAIT_FOR_RSA_ENCRYPTION;
+
             } else {
                 goto_error(r, TSS2_FAPI_RC_NOT_IMPLEMENTED,
                            "Unsupported algorithm (%" PRIu16 ")",
@@ -332,31 +339,39 @@ Fapi_Encrypt_Finish(
         statecase(context->state, DATA_ENCRYPT_WAIT_FOR_RSA_ENCRYPTION);
             r = Esys_RSA_Encrypt_Finish(context->esys, &tpmCipherText);
             return_try_again(r);
+            if (r == 0x00000084) {
+                LOG_ERROR("The data to be encrypted might be too large. Common values are "
+                          "256 bytes for no OAEP or 190 with OAEP.");
+            }
             goto_if_error_reset_state(r, "RSA encryption.", error_cleanup);
 
             /* Return cipherTextSize if requested by the caller. */
             if (cipherTextSize)
-                *cipherTextSize = tpmCipherText->size;
+                command->cipherTextSize = tpmCipherText->size;
 
             /* Duplicate the outputs for handling off to the caller. */
-            *cipherText = malloc(tpmCipherText->size);
-            goto_if_null2(*cipherText, "Out of memory", r, TSS2_FAPI_RC_MEMORY,
+            command->cipherText = malloc(tpmCipherText->size);
+            goto_if_null2(command->cipherText, "Out of memory", r, TSS2_FAPI_RC_MEMORY,
                           error_cleanup);
 
-            memcpy(*cipherText, &tpmCipherText->buffer[0], tpmCipherText->size);
+            memcpy(command->cipherText, &tpmCipherText->buffer[0], tpmCipherText->size);
             SAFE_FREE(tpmCipherText);
 
             /* Flush the key from the TPM. */
-            r = Esys_FlushContext_Async(context->esys,
+            if (!command->key_object->misc.key.persistent_handle) {
+                r = Esys_FlushContext_Async(context->esys,
                                         command->key_handle);
-            goto_if_error(r, "Error: FlushContext", error_cleanup);
+                goto_if_error(r, "Error: FlushContext", error_cleanup);
+            }
             fallthrough;
 
         statecase(context->state, DATA_ENCRYPT_WAIT_FOR_FLUSH);
-            r = Esys_FlushContext_Finish(context->esys);
-            return_try_again(r);
+            if (!command->key_object->misc.key.persistent_handle) {
+                r = Esys_FlushContext_Finish(context->esys);
+                return_try_again(r);
 
-            goto_if_error(r, "Error: FlushContext", error_cleanup);
+                goto_if_error(r, "Error: FlushContext", error_cleanup);
+            }
             command->key_handle = ESYS_TR_NONE;
             fallthrough;
 
@@ -365,6 +380,9 @@ Fapi_Encrypt_Finish(
             r = ifapi_cleanup_session(context);
             try_again_or_error_goto(r, "Cleanup", error_cleanup);
 
+            *cipherText = command->cipherText;
+            if (cipherTextSize)
+                *cipherTextSize = command->cipherTextSize;
             break;
 
         statecasedefault(context->state);
@@ -376,6 +394,8 @@ error_cleanup:
     /* Cleanup any intermediate results and state stored in the context. */
     if (command->key_handle != ESYS_TR_NONE)
         Esys_FlushContext(context->esys,  command->key_handle);
+    if (r)
+        SAFE_FREE(command->cipherText);
     ifapi_cleanup_ifapi_object(&context->loadKey.auth_object);
     ifapi_cleanup_ifapi_object(context->loadKey.key_object);
     ifapi_cleanup_ifapi_object(&context->createPrimary.pkey_object);
