@@ -28,8 +28,8 @@
  * @retval TSS2_RC_SUCCESS If the pathname is ok.
  * @retval TSS2_FAPI_RC_BAD_PATH If not valid characters are detected.
  */
-static TSS2_RC
-check_valid_path(
+TSS2_RC
+ifapi_check_valid_path(
     const char *path)
 {
     for (size_t i = 0; i < strlen(path); i++) {
@@ -311,7 +311,7 @@ expand_path(IFAPI_KEYSTORE *keystore, const char *path, char **file_name)
     check_not_null(path);
 
     /* First it will be checked whether the only valid characters occur in the path. */
-    r = check_valid_path(path);
+    r = ifapi_check_valid_path(path);
     return_if_error(r, "Invalid path.");
 
     if (ifapi_hierarchy_path_p(path)) {
@@ -536,7 +536,7 @@ rel_path_to_abs_path(
         /* Check type of object which does not exist. */
         if (ifapi_path_type_p(rel_path, IFAPI_NV_PATH)) {
             /* NV directory does not exist. */
-            goto_error(r, TSS2_FAPI_RC_NOT_PROVISIONED,
+            goto_error(r, TSS2_FAPI_RC_PATH_NOT_FOUND,
                     "FAPI not provisioned. File %s does not exist.",
                     cleanup, rel_path);
         } else if (ifapi_hierarchy_path_p(rel_path)) {
@@ -1027,7 +1027,7 @@ expand_directory(IFAPI_KEYSTORE *keystore, const char *path, char **directory_na
              strncmp(&path[start_pos], "HE", 2) == 0) &&
             strlen(&path[start_pos]) <= 3) {
             /* Root directory is hierarchy */
-            r = ifapi_asprintf(directory_name, "%s/%s/", keystore->defaultprofile,
+            r = ifapi_asprintf(directory_name, "/%s/%s/", keystore->defaultprofile,
                                &path[start_pos]);
             return_if_error(r, "Out of memory.");
 

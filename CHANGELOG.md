@@ -3,7 +3,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 
-## [3.0.0]
+## [3.0.1] - 2020-09-23
+### Changed or Fixed
+- Fix CVE-2020-24455 FAPI PolicyPCR not instatiating correctly
+  Note that all TPM object created with a PolicyPCR with the currentPcrs
+  and currentPcrsAndBank options have been created with an incorrect policy
+  that ommits PCR checks. All these objects have to be recreated!
+- Fix bug in FAPI NV creation with custom index values
+- Cleanup of leftover sessions in error cases in FAPI
+- Better error messages in several FAPI errors
+- Add checks to FAPI policy paths
+- Add checks if FAPI is correctly provisioned
+- Fix execution of FAPI policies in some cases
+- Allow 0x prefixes for TPMU_HA in JSON encoding
+
+## [3.0.0] - 2020-08-05
 ### Changed or Fixed
 - Added setgid perms and ACL for FAPI keystore to allow r/w access for tss group
 - Fixed duoble json_object_put call in event log processing.
