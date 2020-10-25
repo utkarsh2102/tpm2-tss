@@ -37,7 +37,169 @@ Description: TPM2 Software stack library - TSS and TCTI libraries
    - TPM Command Transmission Interface (TCTI), which is used by SAPI to
      allow communication with the TAB/RM layer;
  .
- This package contains the TSS and TCTI libraries that client applications
+ This package contains the TSS esys libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-fapi1
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TSS fapi libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-mu0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TSS mu libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-rc0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TSS rc libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-sys1
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TSS sys libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-tcti-cmd0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TCTI cmd libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-tcti-device0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TCTI device libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-tcti-mssim0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TCTI mssim libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-tcti-swtpm0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TCTI swtpm libraries that client applications
+ will link against when they require accessing the TPM.
+
+Package: libtss2-tctildr0
+Architecture: any
+Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Breaks: libtss2-esys0 (<< 3.0.1-2)
+Replaces: libtss2-esys0 (<< 3.0.1-2)
+Description: TPM2 Software stack library - TSS and TCTI libraries
+ TPM2.0 TSS (Software Stack) consists of API layers provided to support
+ TPM 2.0 chips. It is made out of three layers:
+ .
+   - Enhanced System API (ESAPI)
+   - System API (SAPI), which implements the system layer API;
+   - Marshaling/Unmarshaling (MU)
+   - TPM Command Transmission Interface (TCTI), which is used by SAPI to
+     allow communication with the TAB/RM layer;
+ .
+ This package contains the TCTI ldr libraries that client applications
  will link against when they require accessing the TPM.
 
 Package: libtss2-dev
@@ -45,6 +207,15 @@ Architecture: any
 Section: libdevel
 Depends: libgcrypt20-dev,
          libtss2-esys0 (= ${binary:Version}),
+         libtss2-fapi1 (= ${binary:Version}),
+         libtss2-mu0 (= ${binary:Version}),
+         libtss2-rc0 (= ${binary:Version}),
+         libtss2-sys1 (= ${binary:Version}),
+         libtss2-tcti-cmd0 (= ${binary:Version}),
+         libtss2-tcti-device0 (= ${binary:Version}),
+         libtss2-tcti-mssim0 (= ${binary:Version}),
+         libtss2-tcti-swtpm0 (= ${binary:Version}),
+         libtss2-tctildr0 (= ${binary:Version}),
          ${misc:Depends},
          ${shlibs:Depends}
 Description: TPM2 Software stack library - development files
