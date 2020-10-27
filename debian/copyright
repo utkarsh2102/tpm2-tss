@@ -1,6 +1,6 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: TPM2.0-TSS
-Source: https://github.com/01org/TPM2.0-TSS
+Source: https://github.com/tpm2-software/tpm2-tss
 
 Files: *
 Copyright: 2015, Intel Corporation

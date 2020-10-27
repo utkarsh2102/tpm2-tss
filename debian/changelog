@@ -1,9 +1,16 @@
-tpm2-tss (3.0.1-3) UNRELEASED; urgency=medium
+tpm2-tss (3.0.1-3) unstable; urgency=low
 
+  [ Debian Janitor <janitor@jelmer.uk> ]
   * Apply multi-arch hints.
     + libtss2-dev, libtss2-esys0: Add Multi-Arch: same.
 
- -- Debian Janitor <janitor@jelmer.uk>  Sun, 25 Oct 2020 20:33:38 -0000
+  [ Ying-Chun Liu (PaulLiu) <paulliu@debian.org> ]
+  * Bump Standards-Version to 4.5.0: nothing needs to be changed
+
+  [ Edward Betts <edward@4angle.com> ]
+  * Upstream GitHub repo has moved, update URL.
+
+ -- Ying-Chun Liu (PaulLiu) <paulliu@debian.org>  Sun, 25 Oct 2020 20:33:38 -0000
 
 tpm2-tss (3.0.1-2) unstable; urgency=low
 
