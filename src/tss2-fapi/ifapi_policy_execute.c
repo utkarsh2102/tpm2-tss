@@ -524,6 +524,7 @@ execute_policy_signed(
     statecasedefault(current_policy->state);
     }
 cleanup:
+    SAFE_FREE(current_policy->nonceTPM);
     SAFE_FREE(current_policy->pem_key);
     SAFE_FREE(signature_ossl);
     SAFE_FREE(current_policy->buffer);
@@ -608,6 +609,7 @@ execute_policy_authorize(
         /* Execute authorized policy. */
         ifapi_policyeval_EXEC_CB *cb = &current_policy->callbacks;
         r = cb->cbauthpol(&policy->keyPublic, hash_alg, &policy->approvedPolicy,
+                          &policy->policyRef,
                           &policy->signature, cb->cbauthpol_userdata);
         return_try_again(r);
         goto_if_error(r, "Execute authorized policy.", cleanup);
@@ -888,13 +890,17 @@ execute_policy_secret(
         r = Esys_PolicySecret_Finish(esys_ctx, NULL,
                                      NULL);
         return_try_again(r);
-        goto_if_error(r, "FAPI PolicyAuthorizeNV_Finish", cleanup);
+        goto_if_error(r, "FAPI PolicyAuthorizeNV_Finish", error_cleanup);
         break;
 
     statecasedefault(current_policy->state);
     }
 
 cleanup:
+    return r;
+
+ error_cleanup:
+    SAFE_FREE(current_policy->nonceTPM);
     return r;
 }
 
