@@ -1,3 +1,12 @@
+tpm2-tss (3.0.2-1) unstable; urgency=low
+
+  * New upstream version 3.0.2
+  * Remove debian/patches/0001-PKG-CONFIG-Fix-include-dir.patch
+    - Already in upstream version 3.0.2
+  * Rename libtss2-esys0 to libtss2-esys-3.0.2-0 (Closes: #974837)
+
+ -- Ying-Chun Liu (PaulLiu) <paulliu@debian.org>  Sun, 22 Nov 2020 12:29:51 +0800
+
 tpm2-tss (3.0.1-4) unstable; urgency=medium
 
   * Fix the include dir for development packages (Closes: #973267)
