@@ -1,4 +1,4 @@
-libtss2-esys.so.0 libtss2-esys0 #MINVER#
+libtss2-esys.so.0 libtss2-esys-3.0.2-0 #MINVER#
  Esys_ActivateCredential@Base 2.3.1
  Esys_ActivateCredential_Async@Base 2.3.1
  Esys_ActivateCredential_Finish@Base 2.3.1

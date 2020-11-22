@@ -24,10 +24,12 @@ Standards-Version: 4.5.0
 Vcs-Browser: https://salsa.debian.org/debian/tpm2-tss
 Vcs-Git: https://salsa.debian.org/debian/tpm2-tss.git
 
-Package: libtss2-esys0
+Package: libtss2-esys-3.0.2-0
 Architecture: any
 Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
 Multi-Arch: same
+Breaks: libtss2-esys0 (<< 3.0.2-1)
+Replaces: libtss2-esys0 (<< 3.0.2-1)
 Description: TPM2 Software stack library - TSS and TCTI libraries
  TPM2.0 TSS (Software Stack) consists of API layers provided to support
  TPM 2.0 chips. It is made out of three layers:
@@ -216,7 +218,7 @@ Package: libtss2-dev
 Architecture: any
 Section: libdevel
 Depends: libgcrypt20-dev,
-         libtss2-esys0 (= ${binary:Version}),
+         libtss2-esys-3.0.2-0 (= ${binary:Version}),
          libtss2-fapi1 (= ${binary:Version}),
          libtss2-mu0 (= ${binary:Version}),
          libtss2-rc0 (= ${binary:Version}),
