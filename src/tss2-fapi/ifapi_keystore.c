@@ -61,8 +61,7 @@ ifapi_check_valid_path(
  * @retval TSS2_FAPI_RC_MEMORY: If memory for the path list could not be allocated.
  * @retval TSS2_FAPI_RC_BAD_VALUE If no explicit path can be derived from the
  *         implicit path.
- * @retval TSS2_FAPI_RC_PATH_NOT_FOUND if a FAPI object path was not found
- *         during authorization.
+ * @retval TSS2_FAPI_RC_BAD_PATH if no valid key path could be created.
  */
 static TSS2_RC
 initialize_explicit_key_path(
@@ -119,7 +118,7 @@ initialize_explicit_key_path(
         hierarchy = "HS";
     } else {
         LOG_ERROR("Hierarchy cannot be determined.");
-        r = TSS2_FAPI_RC_PATH_NOT_FOUND;
+        r = TSS2_FAPI_RC_BAD_PATH;
         goto error;
     }
     /* Add the used hierarchy to the linked list. */
@@ -129,7 +128,7 @@ initialize_explicit_key_path(
         goto error;
     }
     if (list_node == NULL) {
-        goto_error(r, TSS2_FAPI_RC_PATH_NOT_FOUND, "Explicit path can't be determined.",
+        goto_error(r, TSS2_FAPI_RC_BAD_PATH, "Explicit path can't be determined.",
                    error);
     }
 
@@ -141,21 +140,21 @@ initialize_explicit_key_path(
     }
 
     if (hierarchy && strcmp(hierarchy, "HS") == 0 && strcmp(list_node->str, "EK") == 0) {
-        LOG_ERROR("Key EK cannot be create in the storage hierarchy.");
-        r = TSS2_FAPI_RC_PATH_NOT_FOUND;
+        LOG_ERROR("Key EK cannot be created in the storage hierarchy.");
+        r = TSS2_FAPI_RC_BAD_PATH;
         goto error;
     }
 
     if (hierarchy && strcmp(hierarchy, "HE") == 0 && strcmp(list_node->str, "SRK") == 0) {
         LOG_ERROR("Key EK cannot be create in the endorsement hierarchy.");
-        r = TSS2_FAPI_RC_PATH_NOT_FOUND;
+        r = TSS2_FAPI_RC_BAD_PATH;
         goto error;
     }
 
     if (hierarchy && strcmp(hierarchy, "HN") == 0 &&
         (strcmp(list_node->str, "SRK") == 0 || strcmp(list_node->str, "EK") == 0)) {
         LOG_ERROR("Key EK and SRK cannot be created in NULL hierarchy.");
-        r = TSS2_FAPI_RC_PATH_NOT_FOUND;
+        r = TSS2_FAPI_RC_BAD_PATH;
         goto error;
     }
 
@@ -511,6 +510,7 @@ rel_path_to_abs_path(
 {
     TSS2_RC r;
     char *directory = NULL;
+    bool provision_check_ok;
 
     /* First expand path in user directory  */
     r = expand_path(keystore, rel_path, &directory);
@@ -531,6 +531,19 @@ rel_path_to_abs_path(
         if (ifapi_io_path_exists(*abs_path)) {
             r = TSS2_RC_SUCCESS;
             goto cleanup;
+        }
+
+        /* Check whether provisioning was made for the path profile. */
+        r = ifapi_check_provisioned(keystore, rel_path, &provision_check_ok);
+        goto_if_error(r, "Provisioning check.", cleanup);
+
+        if (provision_check_ok) {
+            goto_error(r, TSS2_FAPI_RC_PATH_NOT_FOUND,
+            "Path not found: %s.", cleanup, rel_path);
+        } else {
+            goto_error(r, TSS2_FAPI_RC_NOT_PROVISIONED,
+                       "FAPI not provisioned for path: %s.",
+                       cleanup, rel_path);
         }
 
         /* Check type of object which does not exist. */
@@ -603,6 +616,7 @@ ifapi_keystore_load_async(
     return r;
 
  error_cleanup:
+    SAFE_FREE(abs_path);
     SAFE_FREE(keystore->rel_path);
     return r;
 }
@@ -1182,6 +1196,11 @@ keystore_search_obj(
         path_idx = keystore->key_search.path_idx;
         path = keystore->key_search.pathlist[path_idx];
         LOG_TRACE("Check file: %s %zu", path, keystore->key_search.path_idx);
+
+        /* Skip policy files. */
+        if (ifapi_path_type_p(path, IFAPI_POLICY_PATH)) {
+            return TSS2_FAPI_RC_TRY_AGAIN;
+        }
 
         r = ifapi_keystore_load_async(keystore, io, path);
         return_if_error2(r, "Could not open: %s", path);
@@ -1763,4 +1782,66 @@ ifapi_cleanup_ifapi_object(
             object->objectType = IFAPI_OBJ_NONE;
         }
     }
+}
+
+/** Check whether profile directory exists for a fapi path.
+ *
+ * It will be checked whether a profile directory exists for a path which starts
+ * with a profile name after fapi pathname expansion.
+ *
+ * @param[in] keystore The key directories and default profile.
+ * @param[in] rel_path The relative path to be checked.
+ * @param[out] ok The boolean value whether the check ok.
+ * @retval TSS2_RC_SUCCESS if the check could be made.
+ * @retval TSS2_FAPI_RC_MEMORY: if memory could not be allocated to compute
+ * the absolute paths.
+ */
+TSS2_RC
+ifapi_check_provisioned(
+    IFAPI_KEYSTORE *keystore,
+    const char *rel_path,
+    bool *ok)
+{
+    TSS2_RC r = TSS2_RC_SUCCESS;
+    char *directory = NULL;
+    char *profile_dir = NULL;
+    char *end_profile;
+
+    *ok = false;
+
+    /* First expand path in user directory  */
+    r = expand_path(keystore, rel_path, &directory);
+    goto_if_error(r, "Expand path", cleanup);
+
+    /* Check whether the path starts with a profile. */
+    if (directory && (strncmp(directory, "P_", 2) != 0 || strncmp(directory, "/P_", 2) != 0)) {
+        end_profile = strchr(&directory[1], '/');
+        if (end_profile) {
+            end_profile[0] = '\0';
+        }
+        /* Compute user path of the profile. */
+        r = ifapi_asprintf(&profile_dir, "%s/%s", keystore->userdir, directory);
+        goto_if_error2(r, "Profile path could not be created.", cleanup);
+
+         if (ifapi_io_path_exists(profile_dir)) {
+             *ok = true;
+             goto cleanup;
+         }
+         /* Compute system path of the profile. */
+         SAFE_FREE(profile_dir);
+         r = ifapi_asprintf(&profile_dir, "%s/%s", keystore->systemdir, directory);
+         goto_if_error2(r, "Profile path could not be created.", cleanup);
+
+         if (ifapi_io_path_exists(profile_dir)) {
+             *ok = true;
+             goto cleanup;
+         }
+    } else {
+        /* No check needed because no profile found in the path. */
+        *ok = true;
+    }
+ cleanup:
+    SAFE_FREE(profile_dir);
+    SAFE_FREE(directory);
+    return r;
 }
