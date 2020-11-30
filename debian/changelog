@@ -1,3 +1,9 @@
+tpm2-tss (3.0.3-1) unstable; urgency=low
+
+  * New upstream release.
+
+ -- Ying-Chun Liu (PaulLiu) <paulliu@debian.org>  Mon, 30 Nov 2020 15:15:25 +0800
+
 tpm2-tss (3.0.2-1) unstable; urgency=low
 
   * New upstream version 3.0.2
