@@ -537,10 +537,7 @@ rel_path_to_abs_path(
         r = ifapi_check_provisioned(keystore, rel_path, &provision_check_ok);
         goto_if_error(r, "Provisioning check.", cleanup);
 
-        if (provision_check_ok) {
-            goto_error(r, TSS2_FAPI_RC_PATH_NOT_FOUND,
-            "Path not found: %s.", cleanup, rel_path);
-        } else {
+        if (!provision_check_ok) {
             goto_error(r, TSS2_FAPI_RC_NOT_PROVISIONED,
                        "FAPI not provisioned for path: %s.",
                        cleanup, rel_path);
@@ -550,12 +547,12 @@ rel_path_to_abs_path(
         if (ifapi_path_type_p(rel_path, IFAPI_NV_PATH)) {
             /* NV directory does not exist. */
             goto_error(r, TSS2_FAPI_RC_PATH_NOT_FOUND,
-                    "FAPI not provisioned. File %s does not exist.",
+                    "File %s does not exist.",
                     cleanup, rel_path);
         } else if (ifapi_hierarchy_path_p(rel_path)) {
             /* Hierarchy which should be created during provisioning could not be loaded. */
-            goto_error(r, TSS2_FAPI_RC_NOT_PROVISIONED,
-                    "FAPI not provisioned. Hierarchy file %s does not exist.",
+            goto_error(r, TSS2_FAPI_RC_PATH_NOT_FOUND,
+                    "Hierarchy file %s does not exist.",
                     cleanup, rel_path);
         } else {
             /* Object file for key does not exist in keystore */
