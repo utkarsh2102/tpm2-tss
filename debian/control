@@ -26,7 +26,13 @@ Vcs-Git: https://salsa.debian.org/debian/tpm2-tss.git
 
 Package: libtss2-esys-3.0.2-0
 Architecture: any
-Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Depends: libtss2-tcti-cmd0,
+         libtss2-tcti-device0,
+         libtss2-tcti-mssim0,
+         libtss2-tcti-swtpm0,
+         tpm-udev,
+         ${misc:Depends},
+         ${shlibs:Depends}
 Multi-Arch: same
 Breaks: libtss2-esys0 (<< 3.0.2-1)
 Replaces: libtss2-esys0 (<< 3.0.2-1)
@@ -197,7 +203,13 @@ Description: TPM2 Software stack library - TSS and TCTI libraries
 
 Package: libtss2-tctildr0
 Architecture: any
-Depends: tpm-udev, ${misc:Depends}, ${shlibs:Depends}
+Depends: libtss2-tcti-cmd0,
+         libtss2-tcti-device0,
+         libtss2-tcti-mssim0,
+         libtss2-tcti-swtpm0,
+         tpm-udev,
+         ${misc:Depends},
+         ${shlibs:Depends}
 Multi-Arch: same
 Breaks: libtss2-esys0 (<< 3.0.1-2)
 Replaces: libtss2-esys0 (<< 3.0.1-2)
