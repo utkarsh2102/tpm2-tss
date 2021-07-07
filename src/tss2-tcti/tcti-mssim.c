@@ -271,10 +271,27 @@ tcti_mssim_get_poll_handles (
     TSS2_TCTI_POLL_HANDLE *handles,
     size_t *num_handles)
 {
-    (void)(tctiContext);
-    (void)(handles);
-    (void)(num_handles);
-    return TSS2_TCTI_RC_NOT_IMPLEMENTED;
+    TSS2_TCTI_MSSIM_CONTEXT *tcti_mssim = tcti_mssim_context_cast (tctiContext);
+
+    if (num_handles == NULL || tcti_mssim == NULL) {
+        return TSS2_TCTI_RC_BAD_REFERENCE;
+    }
+
+    if (handles != NULL && *num_handles < 1) {
+        return TSS2_TCTI_RC_BAD_VALUE;
+    }
+
+    *num_handles = 1;
+    if (handles != NULL) {
+#ifdef _WIN32
+        *handles = tcti_mssim->tpm_sock;
+#else
+        handles->fd = tcti_mssim->tpm_sock;
+        handles->events = POLLIN | POLLOUT;
+#endif
+    }
+
+    return TSS2_RC_SUCCESS;
 }
 
 void
@@ -317,7 +334,6 @@ tcti_mssim_receive (
     }
 
     if (timeout != TSS2_TCTI_TIMEOUT_BLOCK) {
-        LOG_TRACE("Asynchronous I/O not actually implemented.");
 #ifdef TEST_FAPI_ASYNC
         if (wait < 1) {
             LOG_TRACE("Simulating Async by requesting another invocation.");
@@ -333,15 +349,23 @@ tcti_mssim_receive (
     if (tcti_common->header.size == 0) {
         /* Receive the size of the response. */
         uint8_t size_buf [sizeof (UINT32)];
-        ret = socket_recv_buf (tcti_mssim->tpm_sock, size_buf, sizeof (UINT32));
+
+        ret = socket_poll(tcti_mssim->tpm_sock, timeout);
+        if (ret != TSS2_RC_SUCCESS) {
+            if (ret == TSS2_TCTI_RC_TRY_AGAIN) {
+                return ret;
+            }
+            rc = ret;
+            goto out;
+        }
+        ret = socket_recv_buf (tcti_mssim->tpm_sock, size_buf, sizeof(UINT32));
         if (ret != sizeof (UINT32)) {
             rc = TSS2_TCTI_RC_IO_ERROR;
             goto out;
         }
 
         rc = Tss2_MU_UINT32_Unmarshal (size_buf,
-                                       sizeof (size_buf),
-                                       0,
+                                       sizeof (size_buf), 0,
                                        &tcti_common->header.size);
         if (rc != TSS2_RC_SUCCESS) {
             LOG_WARNING ("Failed to unmarshal size from tpm2 simulator "
@@ -366,6 +390,14 @@ tcti_mssim_receive (
 
     /* Receive the TPM response. */
     LOG_DEBUG ("Reading response of size %" PRIu32, tcti_common->header.size);
+    ret = socket_poll(tcti_mssim->tpm_sock, timeout);
+    if (ret != TSS2_RC_SUCCESS) {
+        if (ret == TSS2_TCTI_RC_TRY_AGAIN) {
+            return ret;
+        }
+        rc = ret;
+        goto out;
+    }
     ret = socket_recv_buf (tcti_mssim->tpm_sock,
                            (unsigned char *)response_buffer,
                            tcti_common->header.size);
@@ -376,11 +408,20 @@ tcti_mssim_receive (
     LOGBLOB_DEBUG(response_buffer, tcti_common->header.size,
                   "Response buffer received:");
 
+    ret = socket_poll (tcti_mssim->tpm_sock, timeout);
+    if (ret != TSS2_RC_SUCCESS) {
+        if (ret == TSS2_TCTI_RC_TRY_AGAIN) {
+            return ret;
+        }
+        rc = ret;
+        goto out;
+    }
+
     /* Receive the appended four bytes of 0's */
     ret = socket_recv_buf (tcti_mssim->tpm_sock,
-                           (unsigned char *)&trash,
-                           4);
+                           (unsigned char *)&trash, 4);
     if (ret != 4) {
+        LOG_DEBUG ("Error reading last 4 bytes %" PRIu32, ret);
         rc = TSS2_TCTI_RC_IO_ERROR;
         goto out;
     }
@@ -563,6 +604,11 @@ Tss2_Tcti_Mssim_Init (
     rc = socket_connect (mssim_conf.host,
                          mssim_conf.port,
                          &tcti_mssim->tpm_sock);
+    if (rc != TSS2_RC_SUCCESS) {
+        goto fail_out;
+    }
+
+    rc = socket_set_nonblock (tcti_mssim->tpm_sock);
     if (rc != TSS2_RC_SUCCESS) {
         goto fail_out;
     }

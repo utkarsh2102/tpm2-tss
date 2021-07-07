@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #ifndef _WIN32
+#include <poll.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <unistd.h>
@@ -237,8 +238,7 @@ socket_connect (
         if (h == NULL)
             h = hostname;
 
-        LOG_DEBUG ("Attempting TCP connection to host %s, port %s",
-            h, port_str);
+        LOG_DEBUG ("Attempting TCP connection to host %s, port %s", h, port_str);
         if (connect (*sock, p->ai_addr, p->ai_addrlen) != SOCKET_ERROR)
             break; /* socket connected OK */
         socket_close (sock);
@@ -256,5 +256,54 @@ socket_connect (
         return TSS2_TCTI_RC_IO_ERROR;
     }
 
+    return TSS2_RC_SUCCESS;
+}
+
+TSS2_RC
+socket_set_nonblock (SOCKET sock)
+{
+#ifndef _WIN32
+    int flgs;
+
+    flgs = fcntl(sock, F_GETFL);
+    if (flgs == -1)
+        return TSS2_TCTI_RC_IO_ERROR;
+
+    flgs |= O_NONBLOCK;
+    if (fcntl(sock, F_SETFL, flgs) != 0)
+        return TSS2_TCTI_RC_IO_ERROR;
+#endif
+    return TSS2_RC_SUCCESS;
+}
+
+TSS2_RC
+socket_poll (SOCKET sock, int timeout)
+{
+#ifndef _WIN32
+    struct pollfd fds;
+    int rc_poll, nfds = 1;
+
+    fds.fd = sock;
+    fds.events = POLLIN;
+
+    /* Timeout of 0 ie return immediately is not
+     * well handled throughout the upper layers currenty
+     * cousing the integration tests to hang randomly.
+     * Make the poll to waint to at least 10 ms */
+    if (timeout == 0)
+        timeout = 10;
+
+    rc_poll = poll(&fds, nfds, timeout);
+    if (rc_poll < 0) {
+        LOG_ERROR ("Failed to poll for response from fd %d, got errno %d: %s",
+                   sock, errno, strerror(errno));
+        return TSS2_TCTI_RC_IO_ERROR;
+    } else if (rc_poll == 0) {
+        LOG_INFO ("Poll timed out on fd %d.", sock);
+        return TSS2_TCTI_RC_TRY_AGAIN;
+    } else if (fds.revents == POLLIN) {
+        return TSS2_RC_SUCCESS;
+    }
+#endif
     return TSS2_RC_SUCCESS;
 }

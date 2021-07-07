@@ -44,69 +44,64 @@ ifapi_json_IFAPI_CONFIG_deserialize(json_object *jso, IFAPI_CONFIG *out)
     return_if_null(out, "out is NULL", TSS2_FAPI_RC_BAD_REFERENCE);
     return_if_null(jso, "jso is NULL", TSS2_FAPI_RC_BAD_REFERENCE);
 
+    memset(out, 0, sizeof(IFAPI_CONFIG));
+
     /* Deserialize the JSON object) */
     json_object *jso2;
     TSS2_RC r;
     LOG_TRACE("call");
 
-    if (!ifapi_get_sub_object(jso, "profile_dir", &jso2)) {
-        out->profile_dir = NULL;
-    } else {
+    if (ifapi_get_sub_object(jso, "profile_dir", &jso2)) {
         r = ifapi_json_char_deserialize(jso2, &out->profile_dir);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"profile_dir\".");
     }
 
-    if (!ifapi_get_sub_object(jso, "user_dir", &jso2)) {
-        out->user_dir = NULL;
-    } else {
+    if (ifapi_get_sub_object(jso, "user_dir", &jso2)) {
         r = ifapi_json_char_deserialize(jso2, &out->user_dir);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"user_dir\".");
     }
 
-    if (!ifapi_get_sub_object(jso, "system_dir", &jso2)) {
-        out->keystore_dir = NULL;
-    } else {
+    if (ifapi_get_sub_object(jso, "system_dir", &jso2)) {
         r = ifapi_json_char_deserialize(jso2, &out->keystore_dir);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"keystore_dir\".");
     }
 
     if (!ifapi_get_sub_object(jso, "log_dir", &jso2)) {
-        out->log_dir = DEFAULT_LOG_DIR;
+        out->log_dir = strdup(DEFAULT_LOG_DIR);
+        return_if_null(jso, "Out of memory.", TSS2_FAPI_RC_MEMORY);
     } else {
         r = ifapi_json_char_deserialize(jso2, &out->log_dir);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"log_dir\".");
     }
 
     if (!ifapi_get_sub_object(jso, "profile_name", &jso2)) {
-        LOG_ERROR("Bad value");
+        LOG_ERROR("Field \"profile_name\" not found.");
         return TSS2_FAPI_RC_BAD_VALUE;
     }
     r = ifapi_json_char_deserialize(jso2, &out->profile_name);
-    return_if_error(r, "BAD VALUE");
+    return_if_error(r, "Bad value for field \"profile_name\".");
     if (!ifapi_get_sub_object(jso, "tcti", &jso2)) {
-        LOG_ERROR("Bad value");
+        LOG_ERROR("Field \"tcti\" not found.");
         return TSS2_FAPI_RC_BAD_VALUE;
     }
     r = ifapi_json_char_deserialize(jso2, &out->tcti);
-    return_if_error(r, "BAD VALUE");
+    return_if_error(r, "Bad value for field \"tcti\".");
 
     if (!ifapi_get_sub_object(jso, "system_pcrs", &jso2)) {
-        LOG_ERROR("Bad value");
+        LOG_ERROR("Field \"system_pcrs\" not found.");
         return TSS2_FAPI_RC_BAD_VALUE;
     }
     r = ifapi_json_TPML_PCR_SELECTION_deserialize(jso2, &out->system_pcrs);
-    return_if_error(r, "BAD VALUE");
+    return_if_error(r, "Bad value for field \"system_pcrs\".");
 
-    if (!ifapi_get_sub_object(jso, "ek_cert_file", &jso2)) {
-        out->ek_cert_file = NULL;
-    } else {
+    if (ifapi_get_sub_object(jso, "ek_cert_file", &jso2)) {
         r = ifapi_json_char_deserialize(jso2, &out->ek_cert_file);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"ek_cert_file\".");
     }
 
     if (ifapi_get_sub_object(jso, "ek_cert_less", &jso2)) {
         r = ifapi_json_TPMI_YES_NO_deserialize(jso2, &out->ek_cert_less);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"ek_cert_less\".");
 
     } else {
         out->ek_cert_less = TPM2_NO;
@@ -114,16 +109,14 @@ ifapi_json_IFAPI_CONFIG_deserialize(json_object *jso, IFAPI_CONFIG *out)
 
     if (ifapi_get_sub_object(jso, "ek_fingerprint", &jso2)) {
         r = ifapi_json_TPMT_HA_deserialize(jso2, &out->ek_fingerprint);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"ek_fingerprint\".");
     } else {
         out->ek_fingerprint.hashAlg = 0;
     }
 
-    if (!ifapi_get_sub_object(jso, "intel_cert_service", &jso2)) {
-        out->intel_cert_service = NULL;
-    } else {
+    if (ifapi_get_sub_object(jso, "intel_cert_service", &jso2)) {
         r = ifapi_json_char_deserialize(jso2, &out->intel_cert_service);
-        return_if_error(r, "BAD VALUE");
+        return_if_error(r, "Bad value for field \"intel_cert_service\".");
     }
 
     LOG_TRACE("true");
@@ -161,6 +154,53 @@ ifapi_config_initialize_async(IFAPI_IO *io)
 }
 
 /**
+ * Expand user symbol in path.
+ *
+ * "~" and "$HOME" will be replaces by the value of the HOME environment
+ * variable.
+ *
+ * @param[in, out] The path.
+ * @retval TSS2_RC_SUCCESS on success
+ * @retval TSS2_FAPI_RC_BAD_VALUE if path is NULL.
+ * @retval TSS2_FAPI_RC_MEMORY if not enough memory can be allocated.
+ * @retval TSS2_FAPI_RC_BAD_PATH if the home directory can't be determined.
+ */
+
+static TSS2_RC
+expand_home(char **path) {
+    size_t startPos = 0;
+    TSS2_RC r;
+
+    return_if_null(path, "Null passed for path", TSS2_FAPI_RC_BAD_VALUE);
+
+    /* Check whether usage of home directory in pathname */
+    if (strncmp("~", *path, 1) == 0) {
+        startPos = 1;
+    } else if (strncmp("$HOME", *path, 5) == 0) {
+        startPos = 5;
+    }
+
+    /* Replace home abbreviation in path. */
+    char *newPath = NULL;
+    if (startPos != 0) {
+        LOG_DEBUG("Expanding path %s to user's home", *path);
+        char *homeDir = getenv("HOME");
+        return_if_null(homeDir, "Home directory can't be determined.",
+                       TSS2_FAPI_RC_BAD_PATH);
+        if (strncmp(&(*path)[startPos], IFAPI_FILE_DELIM, strlen(IFAPI_FILE_DELIM)) == 0) {
+            startPos += strlen(IFAPI_FILE_DELIM);
+        }
+        r = ifapi_asprintf(&newPath, "%s%s%s", homeDir, IFAPI_FILE_DELIM,
+                           &(*path)[startPos]);
+        return_if_error(r, "Out of memory.");
+
+        SAFE_FREE(*path);
+        *path = newPath;
+    }
+    return TSS2_RC_SUCCESS;
+}
+
+/**
  * Finishes the initialization of the FAPI configuration.
  * @param[in]  io An IO object for file system access
  * @param[out] config The configuration that is initialized
@@ -185,7 +225,6 @@ ifapi_config_initialize_finish(IFAPI_IO *io, IFAPI_CONFIG *config)
     return_if_null(io, "io is NULL", TSS2_FAPI_RC_BAD_REFERENCE);
 
     /* Definitions that must be listed here for the cleanup to work */
-    const char *homeDir = NULL;
     json_object *jso = NULL;
 
     /* Finish reading operation */
@@ -193,51 +232,42 @@ ifapi_config_initialize_finish(IFAPI_IO *io, IFAPI_CONFIG *config)
     size_t configFileContentSize = 0;
     TSS2_RC r = ifapi_io_read_finish(io, &configFileContent, &configFileContentSize);
     return_try_again(r);
-    goto_if_error(r, "Could not finish read operation", cleanup);
+    goto_if_error(r, "Could not finish read operation", error);
     if (configFileContent == NULL || configFileContentSize == 0) {
         LOG_ERROR("Config file is empty");
         r = TSS2_FAPI_RC_BAD_VALUE;
-        goto cleanup;
+        goto error;
     }
 
     /* Parse and deserialize the configuration file */
     jso = json_tokener_parse((char *)configFileContent);
     goto_if_null(jso, "Could not parse JSON objects",
-            TSS2_FAPI_RC_GENERAL_FAILURE, cleanup);
+            TSS2_FAPI_RC_GENERAL_FAILURE, error);
     r = ifapi_json_IFAPI_CONFIG_deserialize(jso, config);
-    goto_if_error(r, "Could not deserialize configuration", cleanup);
+    goto_if_error(r, "Could not deserialize configuration", error);
 
     /* Check, if the values of the configuration are valid */
     goto_if_null(config->profile_dir, "No profile directory defined in config file",
-                 TSS2_FAPI_RC_BAD_VALUE, cleanup);
+                 TSS2_FAPI_RC_BAD_VALUE, error);
     goto_if_null(config->user_dir, "No user directory defined in config file",
-                 TSS2_FAPI_RC_BAD_VALUE, cleanup);
+                 TSS2_FAPI_RC_BAD_VALUE, error);
+    goto_if_null(config->keystore_dir, "No system directory defined in config file",
+                 TSS2_FAPI_RC_BAD_VALUE, error);
     goto_if_null(config->profile_name, "No default profile defined in config file.",
-                 TSS2_FAPI_RC_BAD_VALUE, cleanup);
+                 TSS2_FAPI_RC_BAD_VALUE, error);
 
     /* Check whether usage of home directory is provided in config file */
-    size_t startPos = 0;
-    if (strncmp("~", config->user_dir, 1) == 0) {
-        startPos = 1;
-    } else if (strncmp("$HOME", config->user_dir, 5) == 0) {
-        startPos = 5;
-    }
+    r = expand_home(&config->user_dir);
+    goto_if_error(r, "Expand home directory.", error);
 
-    /* Replace home abbreviation in user path. */
-    char *homePath = NULL;
-    if (startPos != 0) {
-        LOG_DEBUG("Expanding user directory %s to user's home", config->user_dir);
-        homeDir = getenv("HOME");
-        goto_if_null2(homeDir, "Home directory can't be determined.",
-                      r, TSS2_FAPI_RC_BAD_PATH, cleanup);
+    r = expand_home(&config->keystore_dir);
+    goto_if_error(r, "Expand home directory.", error);
 
-        r = ifapi_asprintf(&homePath, "%s%s%s", homeDir, IFAPI_FILE_DELIM,
-                           &config->user_dir[startPos]);
-        goto_if_error(r, "Out of memory.", cleanup);
+    r = expand_home(&config->log_dir);
+    goto_if_error(r, "Expand home directory.", error);
 
-        SAFE_FREE(config->user_dir);
-        config->user_dir = homePath;
-    }
+    r = expand_home(&config->profile_dir);
+    goto_if_error(r, "Expand home directory.", error);
 
     /* Log the contents of the configuration */
     LOG_DEBUG("Configuration profile directory: %s", config->profile_dir);
@@ -246,7 +276,22 @@ ifapi_config_initialize_finish(IFAPI_IO *io, IFAPI_CONFIG *config)
     LOG_DEBUG("Configuration profile name: %s", config->profile_name);
     LOG_DEBUG("Configuration TCTI: %s", config->tcti);
     LOG_DEBUG("Configuration log directory: %s", config->log_dir);
-cleanup:
+
+    SAFE_FREE(configFileContent);
+    if (jso != NULL) {
+        json_object_put(jso);
+    }
+    return r;
+
+ error:
+    SAFE_FREE(config->profile_dir);
+    SAFE_FREE(config->user_dir);
+    SAFE_FREE(config->keystore_dir);
+    SAFE_FREE(config->profile_name);
+    SAFE_FREE(config->tcti);
+    SAFE_FREE(config->log_dir);
+    SAFE_FREE(config->ek_cert_file);
+    SAFE_FREE(config->intel_cert_service);
     SAFE_FREE(configFileContent);
     if (jso != NULL) {
         json_object_put(jso);

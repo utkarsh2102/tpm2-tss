@@ -426,42 +426,16 @@ ifapi_keystore_initialize(
     const char *config_defaultprofile)
 {
     TSS2_RC r;
-    const char *home_dir;
-    char *home_path = NULL;
-    size_t start_pos;
 
     memset(keystore, 0, sizeof(IFAPI_KEYSTORE));
 
-    /* Check whether usage of home directory is provided in config file */
-    if (strncmp("~", config_userdir, 1) == 0) {
-        start_pos = 1;
-    } else if (strncmp("$HOME", config_userdir, 5) == 0) {
-        start_pos = 5;
-    } else {
-        start_pos = 0;
-    }
-
-    /* Replace home abbreviation in user path. */
-    if (start_pos) {
-        LOG_DEBUG("Expanding user directory %s to user's home", config_userdir);
-        home_dir = getenv("HOME");
-        goto_if_null2(home_dir, "Home directory can't be determined.",
-                      r, TSS2_FAPI_RC_BAD_PATH, error);
-
-        r = ifapi_asprintf(&home_path, "%s%s%s", home_dir, IFAPI_FILE_DELIM,
-                           &config_userdir[start_pos]);
-        goto_if_error(r, "Out of memory.", error);
-        keystore->userdir = home_path;
-
-    } else {
-        keystore->userdir = strdup(config_userdir);
-        goto_if_null2(keystore->userdir, "Out of memory.", r, TSS2_FAPI_RC_MEMORY,
-                      error);
-    }
-
     /* Create user directory if necessary */
-    r = ifapi_io_check_create_dir(keystore->userdir, FAPI_WRITE);
+    r = ifapi_io_check_create_dir(config_userdir, FAPI_WRITE);
     goto_if_error2(r, "User directory %s can't be created.", error, keystore->userdir);
+
+    keystore->userdir = strdup(config_userdir);
+    goto_if_null2(keystore->userdir, "Out of memory.", r, TSS2_FAPI_RC_MEMORY,
+                  error);
 
     keystore->systemdir = strdup(config_systemdir);
     goto_if_null2(keystore->systemdir, "Out of memory.", r, TSS2_FAPI_RC_MEMORY,
@@ -471,7 +445,6 @@ ifapi_keystore_initialize(
     goto_if_null2(keystore->defaultprofile, "Out of memory.", r, TSS2_FAPI_RC_MEMORY,
                   error);
 
-    SAFE_FREE(home_path);
     return TSS2_RC_SUCCESS;
 
 error:
@@ -609,6 +582,7 @@ ifapi_keystore_load_async(
 
     /* Prepare read operation */
     r = ifapi_io_read_async(io, abs_path);
+    goto_if_error2(r, "Read object %s", error_cleanup, path);
     SAFE_FREE(abs_path);
     return r;
 
@@ -636,16 +610,13 @@ ifapi_keystore_load_async(
  */
 TSS2_RC
 ifapi_keystore_load_finish(
-    IFAPI_KEYSTORE *keystore,
+    IFAPI_KEYSTORE *keystore MAYBE_UNUSED,
     IFAPI_IO *io,
     IFAPI_OBJECT *object)
 {
     TSS2_RC r;
     json_object *jso = NULL;
     uint8_t *buffer = NULL;
-    /* Keystore parameter is used to be prepared if transmission of state information
-       between async and finish will be necessary in future extensions. */
-    (void)keystore;
 
     r = ifapi_io_read_finish(io, &buffer, NULL);
     return_try_again(r);
@@ -816,7 +787,6 @@ cleanup:
  *
  * This function needs to be called repeatedly until it does not return TSS2_FAPI_RC_TRY_AGAIN.
  *
- * @param[in] keystore The key directories and default profile.
  * @param[in,out] io The input/output context being used for file I/O.
  * @retval TSS2_RC_SUCCESS: if the function call was a success.
  * @retval TSS2_FAPI_RC_IO_ERROR: if an I/O error was encountered; such as the file was not found.
@@ -825,14 +795,10 @@ cleanup:
  */
 TSS2_RC
 ifapi_keystore_store_finish(
-    IFAPI_KEYSTORE *keystore,
     IFAPI_IO *io)
 {
     TSS2_RC r;
 
-    /* Keystore parameter is used to be prepared if transmission of state information
-       between async and finish will be necessary in future extensions. */
-    (void)keystore;
     /* Finish writing the object */
     r = ifapi_io_write_finish(io);
     return_try_again(r);
@@ -1321,26 +1287,21 @@ ifapi_keystore_search_nv_obj(
   *
   * The passed relative path will be expanded for user store and system store.
   *
-  *  Keys objects, NV objects, and hierarchies can be written.
-  *
   * @param[in] keystore The key directories and default profile.
-  * @param[in] io  The input/output context being used for file I/O.
   * @param[in] path The relative path of the object. For keys the path will
-  *           expanded if possible.
+  *            expanded if possible.
   * @retval TSS2_RC_SUCCESS if the object does not exist.
-  * @retval TSS2_FAPI_RC_PATH_ALREADY_EXISTS if the file in objects exists.
+  * @retval TSS2_FAPI_RC_PATH_ALREADY_EXISTS if the file exists in the keystore.
   * @retval TSS2_FAPI_RC_MEMORY: if memory could not be allocated to hold the output data.
   */
 TSS2_RC
 ifapi_keystore_check_overwrite(
     IFAPI_KEYSTORE *keystore,
-    IFAPI_IO *io,
     const char *path)
 {
     TSS2_RC r;
     char *directory = NULL;
     char *file = NULL;
-    (void)io; /* Used to simplify future extensions */
 
     /* Expand relative path */
     r = expand_path(keystore, path, &directory);
@@ -1380,7 +1341,6 @@ cleanup:
  *  Keys objects, NV objects, and hierarchies can be written.
  *
  * @param[in] keystore The key directories and default profile.
- * @param[in] io  The input/output context being used for file I/O.
  * @param[in] path The relative path of the object. For keys the path will
  *           expanded if possible.
  * @retval TSS2_RC_SUCCESS if the object does not exist.
@@ -1399,13 +1359,11 @@ cleanup:
 TSS2_RC
 ifapi_keystore_check_writeable(
     IFAPI_KEYSTORE *keystore,
-    IFAPI_IO *io,
     const char *path)
 {
     TSS2_RC r;
     char *directory = NULL;
     char *file = NULL;
-    (void)io; /* Used to simplify future extensions */
 
     /* Expand relative path */
     r = expand_path(keystore, path, &directory);

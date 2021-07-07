@@ -386,6 +386,11 @@ iesys_handle_to_tpm_handle(ESYS_TR esys_handle, TPM2_HANDLE * tpm_handle)
         *tpm_handle = TPM2_RH_PLATFORM_NV;
         return TPM2_RC_SUCCESS;
     }
+    if (esys_handle >= ESYS_TR_RH_ACT_FIRST &&
+        esys_handle <= ESYS_TR_RH_ACT_LAST) {
+        *tpm_handle = TPM2_RH_ACT_0 + (esys_handle - ESYS_TR_RH_ACT_FIRST);
+        return TPM2_RC_SUCCESS;
+    }
     LOG_ERROR("Error: Esys invalid ESAPI handle (%x).", esys_handle);
     return TSS2_ESYS_RC_BAD_VALUE;
 }
@@ -573,10 +578,8 @@ iesys_gen_caller_nonces(ESYS_CONTEXT * esys_context)
  *
  * In case where command does not support param encryption/decryption
  * store the original session attributes and update them accordingly.
- * Return true is command support param encryption.
  *
- * @retval TRUE if command support param encryption
- * @retval FLASE if command does not support param encryption
+ * @retval void
  */
 static void
 iesys_update_session_flags(ESYS_CONTEXT * esys_context,
@@ -732,7 +735,6 @@ iesys_encrypt_param(ESYS_CONTEXT * esys_context,
                                                  symDef->algorithm,
                                                  symDef->keyBits.aes,
                                                  symDef->mode.aes,
-                                                 AES_BLOCK_SIZE_IN_BYTES,
                                                  &encrypt_buffer[0], paramSize,
                                                  &symKey[aes_off]);
                 return_if_error(r, "AES encryption not possible");
@@ -832,7 +834,6 @@ iesys_decrypt_param(ESYS_CONTEXT * esys_context)
                                      symDef->algorithm,
                                      symDef->keyBits.aes,
                                      symDef->mode.aes,
-                                     AES_BLOCK_SIZE_IN_BYTES,
                                      &plaintext[0], p2BSize,
                                      &symKey[aes_off]);
         return_if_error(r, "Decryption error");
@@ -1292,6 +1293,18 @@ iesys_gen_auths(ESYS_CONTEXT * esys_context,
                                     &encryptNonce);
     return_if_error(r, "More than one crypt session");
 
+    /*
+     * TPM2.0 Architecture 19.6.5 Note 7
+     *
+     * If the same session (not the first session) is used for decrypt and
+     * encrypt, its nonceTPM is only used once. If different sessions are used
+     * for decrypt and encrypt, both nonceTPMs are included
+     */
+    if (decryptNonceIdx && (decryptNonceIdx == encryptNonceIdx)) {
+        decryptNonceIdx = 0;
+    }
+
+
     /* Compute cp hash values for command buffer for all used algorithms */
 
     r = iesys_compute_cp_hashtab(esys_context,
@@ -1548,4 +1561,56 @@ iesys_tpm_error(TSS2_RC r)
             ((r & TSS2_RC_LAYER_MASK) == 0 ||
              (r & TSS2_RC_LAYER_MASK) == TSS2_RESMGR_TPM_RC_LAYER ||
              (r & TSS2_RC_LAYER_MASK) == TSS2_RESMGR_RC_LAYER));
+}
+
+
+/** Replace auth value with Hash for long auth values.
+ *
+ * if the size of auth value exceeds hash_size the auth value
+ * will be replaced with the hash of the auth value.
+ *
+ * @param[in,out] auth_value The auth value to be adapted.
+ * @param[in] hash_alg The hash alg used for adaption.
+ * @retval TSS2_RC_SUCCESS if the function call was a success.
+ * @retval TSS2_ESYS_RC_BAD_VALUE if an invalid hash is passed.
+ * @retval TSS2_ESYS_RC_MEMORY if the ESAPI cannot allocate enough memory.
+ * @retval TSS2_ESYS_RC_GENERAL_FAILURE for a failure during digest
+ *         computation.
+ */
+TSS2_RC
+iesys_hash_long_auth_values(
+    TPM2B_AUTH *auth_value,
+    TPMI_ALG_HASH hash_alg)
+{
+    TSS2_RC r;
+    IESYS_CRYPTO_CONTEXT_BLOB *cryptoContext;
+    TPM2B_AUTH hash2b;
+    size_t hash_size;
+
+    r = iesys_crypto_hash_get_digest_size(hash_alg, &hash_size);
+    return_if_error(r, "Get digest size.");
+
+    if (auth_value && auth_value->size > hash_size) {
+        /* The auth value has to be adapted. */
+        r = iesys_crypto_hash_start(&cryptoContext, hash_alg);
+        return_if_error(r, "crypto hash start");
+
+        r = iesys_crypto_hash_update(cryptoContext, &auth_value->buffer[0],
+                                     auth_value->size);
+        goto_if_error(r, "crypto hash update", error_cleanup);
+
+        r = iesys_crypto_hash_finish(&cryptoContext, &hash2b.buffer[0],
+                                     &hash_size);
+        goto_if_error(r, "crypto hash finish", error_cleanup);
+
+        memcpy(&auth_value->buffer[0], &hash2b.buffer[0], hash_size);
+        auth_value->size = hash_size;
+    }
+    return r;
+
+ error_cleanup:
+    if (cryptoContext) {
+        iesys_crypto_hash_abort(&cryptoContext);
+    }
+    return r;
 }

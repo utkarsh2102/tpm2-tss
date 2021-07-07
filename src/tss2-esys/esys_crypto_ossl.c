@@ -128,10 +128,9 @@ iesys_cryptossl_hash_start(IESYS_CRYPTO_CONTEXT_BLOB ** context,
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Error EVP_MD_CTX_create", cleanup);
     }
 
-    if (1 != EVP_DigestInit_ex(mycontext->hash.ossl_context,
-                               mycontext->hash.ossl_hash_alg,
-                               NULL)) {
-        goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Errror EVP_DigestInit_ex", cleanup);
+    if (1 != EVP_DigestInit(mycontext->hash.ossl_context,
+                               mycontext->hash.ossl_hash_alg)) {
+        goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Errror EVP_DigestInit", cleanup);
     }
 
     *context = (IESYS_CRYPTO_CONTEXT_BLOB *) mycontext;
@@ -233,13 +232,13 @@ iesys_cryptossl_hash_finish(IESYS_CRYPTO_CONTEXT_BLOB ** context,
         return_error(TSS2_ESYS_RC_BAD_SIZE, "Buffer too small");
     }
 
-    if (1 != EVP_DigestFinal_ex(mycontext->hash.ossl_context, buffer, &digest_size)) {
+    if (1 != EVP_DigestFinal(mycontext->hash.ossl_context, buffer, &digest_size)) {
         return_error(TSS2_ESYS_RC_GENERAL_FAILURE, "Ossl error.");
     }
 
     if (digest_size != mycontext->hash.hash_len) {
         return_error(TSS2_ESYS_RC_GENERAL_FAILURE,
-                     "Invalid size computed by EVP_DigestFinal_ex");
+                     "Invalid size computed by EVP_DigestFinal");
     }
 
     LOGBLOB_TRACE(buffer, mycontext->hash.hash_len, "read hash result");
@@ -949,11 +948,10 @@ iesys_cryptossl_get_ecdh_point(TPM2B_PUBLIC *key,
  * @param[in] key_bits Key size in bits.
  * @param[in] tpm_mode Block cipher mode of opertion in TSS2 notation (CFB).
  *            For parameter encryption only CFB can be used.
- * @param[in] blk_len Length Block length of AES.
  * @param[in,out] buffer Data to be encrypted. The encrypted date will be stored
  *                in this buffer.
  * @param[in] buffer_size size of data to be encrypted.
- * @param[in] iv The initialization vector. The size is equal to blk_len.
+ * @param[in] iv The initialization vector.
  * @retval TSS2_RC_SUCCESS on success, or TSS2_ESYS_RC_BAD_VALUE and
  * @retval TSS2_ESYS_RC_BAD_REFERENCE for invalid parameters,
  * @retval TSS2_ESYS_RC_GENERAL_FAILURE for errors of the crypto library.
@@ -963,7 +961,6 @@ iesys_cryptossl_sym_aes_encrypt(uint8_t * key,
                                 TPM2_ALG_ID tpm_sym_alg,
                                 TPMI_AES_KEY_BITS key_bits,
                                 TPM2_ALG_ID tpm_mode,
-                                size_t blk_len,
                                 uint8_t * buffer,
                                 size_t buffer_size,
                                 uint8_t * iv)
@@ -978,9 +975,6 @@ iesys_cryptossl_sym_aes_encrypt(uint8_t * key,
     }
 
     LOGBLOB_TRACE(buffer, buffer_size, "IESYS AES input");
-
-    /* Parameter blk_len needed for other crypto libraries */
-    (void)blk_len;
 
     if (key_bits == 128 && tpm_mode == TPM2_ALG_CFB)
         cipher_alg = EVP_aes_128_cfb();
@@ -1005,12 +999,9 @@ iesys_cryptossl_sym_aes_encrypt(uint8_t * key,
                    "Initialize cipher context", cleanup);
     }
 
-    if (1 != EVP_EncryptInit_ex(ctx, cipher_alg, NULL, key, iv)) {
+    if (1 != EVP_EncryptInit(ctx, cipher_alg,key, iv)) {
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE,
                    "Initialize cipher operation", cleanup);
-    }
-    if (1 != EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv)) {
-        goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Set key and iv", cleanup);
     }
 
     /* Perform the encryption */
@@ -1018,7 +1009,7 @@ iesys_cryptossl_sym_aes_encrypt(uint8_t * key,
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Encrypt update", cleanup);
     }
 
-    if (1 != EVP_EncryptFinal_ex(ctx, buffer, &cipher_len)) {
+    if (1 != EVP_EncryptFinal(ctx, buffer, &cipher_len)) {
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Encrypt final", cleanup);
     }
     LOGBLOB_TRACE(buffer, buffer_size, "IESYS AES output");
@@ -1037,11 +1028,10 @@ iesys_cryptossl_sym_aes_encrypt(uint8_t * key,
  * @param[in] key_bits Key size in bits.
  * @param[in] tpm_mode Block cipher mode of opertion in TSS2 notation (CFB).
  *            For parameter encryption only CFB can be used.
- * @param[in] blk_len Length Block length of AES.
  * @param[in,out] buffer Data to be decrypted. The decrypted date will be stored
  *                in this buffer.
  * @param[in] buffer_size size of data to be encrypted.
- * @param[in] iv The initialization vector. The size is equal to blk_len.
+ * @param[in] iv The initialization vector.
  * @retval TSS2_RC_SUCCESS on success, or TSS2_ESYS_RC_BAD_VALUE and
  * @retval TSS2_ESYS_RC_BAD_REFERENCE for invalid parameters,
  * @retval TSS2_ESYS_RC_GENERAL_FAILURE for errors of the crypto library.
@@ -1051,7 +1041,6 @@ iesys_cryptossl_sym_aes_decrypt(uint8_t * key,
                                 TPM2_ALG_ID tpm_sym_alg,
                                 TPMI_AES_KEY_BITS key_bits,
                                 TPM2_ALG_ID tpm_mode,
-                                size_t blk_len,
                                 uint8_t * buffer,
                                 size_t buffer_size,
                                 uint8_t * iv)
@@ -1060,9 +1049,6 @@ iesys_cryptossl_sym_aes_decrypt(uint8_t * key,
     const EVP_CIPHER *cipher_alg = NULL;
     EVP_CIPHER_CTX *ctx = NULL;
     int cipher_len = 0;
-
-    /* Parameter blk_len needed for other crypto libraries */
-    (void)blk_len;
 
     if (key == NULL || buffer == NULL) {
         return_error(TSS2_ESYS_RC_BAD_REFERENCE, "Bad reference");
@@ -1093,13 +1079,9 @@ iesys_cryptossl_sym_aes_decrypt(uint8_t * key,
 
     LOGBLOB_TRACE(buffer, buffer_size, "IESYS AES input");
 
-    if (1 != EVP_DecryptInit_ex(ctx, cipher_alg, NULL, key, iv)) {
+    if (1 != EVP_DecryptInit(ctx, cipher_alg, key, iv)) {
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE,
                    "Initialize cipher operation", cleanup);
-    }
-
-    if (1 != EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv)) {
-        goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Set key and iv", cleanup);
     }
 
     /* Perform the decryption */
@@ -1107,7 +1089,7 @@ iesys_cryptossl_sym_aes_decrypt(uint8_t * key,
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Encrypt update", cleanup);
     }
 
-    if (1 != EVP_DecryptFinal_ex(ctx, buffer, &cipher_len)) {
+    if (1 != EVP_DecryptFinal(ctx, buffer, &cipher_len)) {
         goto_error(r, TSS2_ESYS_RC_GENERAL_FAILURE, "Encrypt final", cleanup);
     }
     LOGBLOB_TRACE(buffer, buffer_size, "IESYS AES output");

@@ -1557,9 +1557,13 @@ ifapi_load_keys_async(FAPI_CONTEXT *context, char const *keyPath)
     context->loadKey.path_list = path_list;
     path_length = ifapi_path_length(path_list);
     r = ifapi_load_key_async(context, path_length);
-    return_if_error(r, "Load key async.");
+    goto_if_error(r, "Load key async.", error);
 
     return TSS2_RC_SUCCESS;
+
+ error:
+    free_string_list( context->loadKey.path_list);
+    return r;
 }
 
 /** Asynchronous preparation for loading of the parent keys.
@@ -1594,7 +1598,7 @@ ifapi_load_parent_keys_async(FAPI_CONTEXT *context, char const *keyPath)
     full_path_to_fapi_path(&context->keystore, fapi_key_path);
     r = get_explicit_key_path(&context->keystore, fapi_key_path, &path_list);
     SAFE_FREE(fapi_key_path);
-    return_if_error(r, "Compute explicit path.");
+    goto_if_error(r, "Compute explicit path.", error);
 
     context->loadKey.path_list = path_list;
     path_length = ifapi_path_length(path_list);
@@ -1602,6 +1606,10 @@ ifapi_load_parent_keys_async(FAPI_CONTEXT *context, char const *keyPath)
     return_if_error(r, "Load key async.");
 
     return TSS2_RC_SUCCESS;
+
+ error:
+    free_string_list(context->loadKey.path_list);
+    return r;
 }
 
 /** Asynchronous finish function for loading a key.
@@ -1649,7 +1657,7 @@ ifapi_load_keys_finish(
     if (r == TSS2_FAPI_RC_TRY_AGAIN)
         return r;
 
-    return_if_error(r, "Load keys");
+    goto_if_error(r, "Load keys", error);
 
     *handle = context->loadKey.auth_object.handle;
     /* The current authorization object is the last key loaded and
@@ -1657,6 +1665,11 @@ ifapi_load_keys_finish(
     *key_object = &context->loadKey.auth_object;
     free_string_list(context->loadKey.path_list);
     return TSS2_RC_SUCCESS;
+
+ error:
+    free_string_list(context->loadKey.path_list);
+    return r;
+
 }
 
 /** Initialize state machine for loading a key.
@@ -1914,6 +1927,10 @@ ifapi_load_key_finish(FAPI_CONTEXT *context, bool flush_parent)
     }
 
 error_cleanup:
+    if (context->loadKey.handle && context->loadKey.handle != ESYS_TR_NONE &&
+        context->loadKey.key_object->misc.key.persistent_handle) {
+        Esys_FlushContext(context->esys, context->loadKey.handle);
+    }
     ifapi_free_object_list(context->loadKey.key_list);
     ifapi_cleanup_ifapi_object(context->loadKey.key_object);
     SAFE_FREE(context->loadKey.key_path);
@@ -2316,7 +2333,7 @@ ifapi_nv_write(
 
     statecase(context->nv_cmd.nv_write_state, NV2_WRITE_WRITE);
         /* Finish writing the NV object to the key store */
-        r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+        r = ifapi_keystore_store_finish(&context->io);
         return_try_again(r);
         return_if_error_reset_state(r, "write_finish failed");
 
@@ -3159,8 +3176,7 @@ ifapi_key_create_prepare(
     return_if_error(r, "Initialize Key_Create");
 
     /* First check whether an existing object would be overwritten */
-    r = ifapi_keystore_check_overwrite(&context->keystore, &context->io,
-                                       keyPath);
+    r = ifapi_keystore_check_overwrite(&context->keystore, keyPath);
     return_if_error2(r, "Check overwrite %s", keyPath);
 
     context->srk_handle = 0;
@@ -3529,7 +3545,7 @@ ifapi_key_create(
 
     statecase(context->cmd.Key_Create.state, KEY_CREATE_WRITE);
         /* Finish writing the key to the key store */
-        r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+        r = ifapi_keystore_store_finish(&context->io);
         return_try_again(r);
         return_if_error_reset_state(r, "write_finish failed");
 
@@ -4682,7 +4698,7 @@ ifapi_create_primary(
 
     statecase(context->cmd.Key_Create.state, KEY_CREATE_PRIMARY_WRITE);
         /* Finish writing the key to the key store */
-        r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+        r = ifapi_keystore_store_finish(&context->io);
         return_try_again(r);
         return_if_error_reset_state(r, "write_finish failed");
 

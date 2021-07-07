@@ -1,0 +1,42 @@
+{
+    "description":"Policy PCR",
+    "policyDigests":[
+        {
+            "hashAlg":"SHA256",
+            "digest":"bff2d58e9813f97cefc14f72ad8133bc7092d652b7c877959254af140c841f36"
+        }
+    ],
+    "policyAuthorizations":[
+        {
+            "type": "pem",
+            "policyRef": [ 1, 2, 3, 4, 5 ],
+            "key": "-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnPQK8IACQZ6kbhWW4Bpm
+nyLiQzGzpDUB4US4ltdhnauyHOiLOidQlRf6OHBVQ7TELDMYydID2/U7/lnwWUJm
+a+xonItYWjjdPiU8fGIry029FTG2qqSSZg4oqa7fcxxNOAvUyuHitmzVnUT4xGCT
+wjvxNR50a6td+dSiN0dAm5DTiRuhVSxmUB3Kw9OP3pwYGCnfWkGQTeYXURJycQt6
+qsM79xI13nxLrtyxONmfRwgq+G0txdS4m3bxDwCQpenF/VcrkB14wPeWrGd/7Yap
+4kXOlv6HW7O2g120euH6A68jSjnrWYj/bAEpvDi09UU1a/d0LHbE3FGn0Dip+dmJ
+iQIDAQAB\n-----END PUBLIC KEY-----",
+            "signature": "7cbb2505fc602b38494b0d6841ee33ace3ec2f0ceac03a6df46255310a6266613643a4dd5f58554836f3404184be0163d09a2d8bc4c78b3da6a0da41da6ccbb5d60bf211e701fc798d3bc69057907aed423afcfaa66deb4b53c9c8a640a473dbe5ba73efc9a51cb369b7cfd585b5d452e527057bc83c8e3690d3b1aea6a8907448909b09331276c2f87c6cd2a2a6b692301f56e23cb36961769cee718365d893236ca1a6349773ea2da2e3075dbb01701b53b2f8f638de82dac3524c442d142c69bad77b72aed6ef8ab3639272c19dfe013938148010975122b12ba661bf7d8b2d7f759123c992e49dc53ee7b1e6ef4b9ddaa408e6829e3124ffd95576284215"
+        }
+    ],
+    "policy":[
+    {
+      "type":"POLICYPCR",
+      "policyDigests":[
+        {
+          "hashAlg":"SHA256",
+          "digest":"bff2d58e9813f97cefc14f72ad8133bc7092d652b7c877959254af140c841f36"
+        }
+      ],
+      "pcrs":[
+        {
+          "pcr":16,
+          "hashAlg":"TPM2_ALG_SHA256",
+          "digest":"0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    }
+  ]
+}

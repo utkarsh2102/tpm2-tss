@@ -53,7 +53,9 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
     TSS2_RC r;
     ESYS_TR primaryHandle = ESYS_TR_NONE;
     ESYS_TR loadedKeyHandle = ESYS_TR_NONE;
+#if defined(TEST_ECC) || !defined(TEST_NULL_BIND_NO_TPM_KEY)
     ESYS_TR primaryHandle_AuthSession = ESYS_TR_NONE;
+#endif
     ESYS_TR session = ESYS_TR_NONE;
     ESYS_TR outerSession = ESYS_TR_NONE;
 
@@ -79,6 +81,12 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
         .size = 5,
         .buffer = {1, 2, 3, 4, 5}
     };
+
+#ifdef TEST_LARGE_AUTH
+    for (int i = 0; i < 33; i++)
+        authValuePrimary.buffer[i] = i;
+    authValuePrimary.size = 33;
+#endif
 
     TPM2B_SENSITIVE_CREATE inSensitivePrimary = {
         .size = 0,
@@ -119,7 +127,7 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
                  .scheme = {
                       .scheme = TPM2_ALG_ECDH,
                       .details = {
-                          .ecdh = {.hashAlg  = TPM2_ALG_SHA1}},
+                          .ecdh = {.hashAlg  = TPM2_ALG_SHA256}},
                   },
                  .curveID = TPM2_ECC_NIST_P256,
                  .kdf = {
@@ -213,13 +221,13 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
 
     r = Esys_TR_SetAuth(esys_context, primaryHandle_AuthSession, &authValuePrimary);
     goto_if_error(r, "Error: TR_SetAuth", error);
-#else
+#elif defined(TEST_BOUND_SESSION) || !defined(TEST_NULL_BIND_NO_TPM_KEY)
     primaryHandle_AuthSession = primaryHandle;
 #endif /* TEST_ECC */
 
 #if TEST_XOR_OBFUSCATION
     TPMT_SYM_DEF symmetric = {.algorithm = TPM2_ALG_XOR,
-                              .keyBits = { .exclusiveOr = TPM2_ALG_SHA1 },
+                              .keyBits = { .exclusiveOr = TPM2_ALG_SHA256 },
                               .mode = {.aes = TPM2_ALG_CFB}};
 #elif TEST_AES_ENCRYPTION
     TPMT_SYM_DEF symmetric = {.algorithm = TPM2_ALG_AES,
@@ -249,17 +257,37 @@ test_esys_create_session_auth(ESYS_CONTEXT * esys_context)
                                   TPMA_SESSION_AUDIT);
     goto_if_error(r, "Error Esys_TRSess_SetAttributes", error);
 
+#if defined(TEST_BOUND_SESSION)
     r = Esys_StartAuthSession(esys_context,
                               primaryHandle_AuthSession,
-#if TEST_BOUND_SESSION
                               primaryHandle_AuthSession,
-#else
-                              ESYS_TR_NONE,
-#endif
                               outerSession, ESYS_TR_NONE, ESYS_TR_NONE,
                               NULL,
                               sessionType, &symmetric, authHash, &session);
-    Esys_FlushContext(esys_context, outerSession);
+#elif defined(TEST_NULL_BIND_TPMKEY)
+     r = Esys_StartAuthSession(esys_context,
+                              primaryHandle_AuthSession,
+                              ESYS_TR_RH_NULL,
+                              outerSession, ESYS_TR_NONE, ESYS_TR_NONE,
+                              NULL,
+                              sessionType, &symmetric, authHash, &session);
+#elif defined(TEST_NULL_BIND_NO_TPM_KEY)
+     r = Esys_StartAuthSession(esys_context,
+                               ESYS_TR_NONE,
+                               ESYS_TR_RH_NULL,
+                               outerSession, ESYS_TR_NONE, ESYS_TR_NONE,
+                               NULL,
+                               sessionType, &symmetric, authHash, &session);
+#else
+     r = Esys_StartAuthSession(esys_context,
+                               primaryHandle_AuthSession,
+                               ESYS_TR_NONE,
+                               outerSession, ESYS_TR_NONE, ESYS_TR_NONE,
+                               NULL,
+                               sessionType, &symmetric, authHash, &session);
+#endif
+
+     Esys_FlushContext(esys_context, outerSession);
     goto_if_error(r, "Error during Esys_StartAuthSession", error);
 
 #ifdef TEST_ECC

@@ -1,0 +1,38 @@
+{
+    "description":"Policy PCR",
+    "policyDigests":[
+        {
+            "hashAlg":"sha256",
+            "digest":"bff2d58e9813f97cefc14f72ad8133bc7092d652b7c877959254af140c841f36"
+        }
+    ],
+    "policyAuthorizations":[
+        {
+            "type": "pem",
+            "policyRef": [ 1, 2, 3, 4, 5 ],
+            "key": "-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEGrFjxBLlFFiZOvemP50H4xCQpL3b
+yeJqGISIHmNSPpTGS9K5kGoKw3gdR2DXsO97RkIZbpHKiA41PJ2KnXDS1Q==
+-----END PUBLIC KEY-----",
+            "signature": "30450220328a3bee87f5a21c7b80073b71155b4247cf524441f5755fd41edc911879ef99022100f6a527f793b18a4c984d9e0a8dc9be558291b297f4b969cf021af1c610467b8e"
+        }
+    ],
+    "policy":[
+    {
+      "type":"POLICYPCR",
+      "policyDigests":[
+        {
+          "hashAlg":"sha256",
+          "digest":"bff2d58e9813f97cefc14f72ad8133bc7092d652b7c877959254af140c841f36"
+        }
+      ],
+      "pcrs":[
+        {
+          "pcr":16,
+          "hashAlg":"sha256",
+          "digest":"0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ]
+    }
+  ]
+}

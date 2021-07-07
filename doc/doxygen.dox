@@ -286,8 +286,8 @@ Both the synchronous and asynchronous API are exposed through a single library: 
  * ESAPI function to invoke the TPM2_EncryptDecrypt command
  * either as a one-call or in an asynchronous manner.
  \{
- \fn TSS2_RC Esys_EncryptDecrypt_Async(ESYS_CONTEXT *esysContext, ESYS_TR keyHandle, ESYS_TR shandle1, ESYS_TR shandle2, ESYS_TR shandle3, TPMI_YES_NO decrypt, TPMI_ALG_SYM_MODE mode, const TPM2B_IV *ivIn, const TPM2B_MAX_BUFFER *inData)
- \fn TSS2_RC Esys_EncryptDecrypt(ESYS_CONTEXT *esysContext, ESYS_TR keyHandle, ESYS_TR shandle1, ESYS_TR shandle2, ESYS_TR shandle3, TPMI_YES_NO decrypt, TPMI_ALG_SYM_MODE mode, const TPM2B_IV *ivIn, const TPM2B_MAX_BUFFER *inData, TPM2B_MAX_BUFFER **outData, TPM2B_IV **ivOut)
+ \fn TSS2_RC Esys_EncryptDecrypt_Async(ESYS_CONTEXT *esysContext, ESYS_TR keyHandle, ESYS_TR shandle1, ESYS_TR shandle2, ESYS_TR shandle3, TPMI_YES_NO decrypt, TPMI_ALG_CIPHER_MODE mode, const TPM2B_IV *ivIn, const TPM2B_MAX_BUFFER *inData)
+ \fn TSS2_RC Esys_EncryptDecrypt(ESYS_CONTEXT *esysContext, ESYS_TR keyHandle, ESYS_TR shandle1, ESYS_TR shandle2, ESYS_TR shandle3, TPMI_YES_NO decrypt, TPMI_ALG_CIPHER_MODE mode, const TPM2B_IV *ivIn, const TPM2B_MAX_BUFFER *inData, TPM2B_MAX_BUFFER **outData, TPM2B_IV **ivOut)
  \fn TSS2_RC Esys_EncryptDecrypt_Finish(ESYS_CONTEXT *esysContext, TPM2B_MAX_BUFFER **outData, TPM2B_IV **ivOut)
  \}
  \defgroup Esys_EventSequenceComplete The ESAPI function for the TPM2_EventSequenceComplete command.
@@ -1554,23 +1554,24 @@ and are marked according to the PC Client Profile Revision 01.03 v22:
  FAPI functions to invoke SetAuthCB.
  \{
  \fn Fapi_SetAuthCB(FAPI_CONTEXT *context, Fapi_CB_Auth callback,  void *userData)
- \typedef (*Fapi_CB_Auth)(FAPI_CONTEXT *context, char const *description, char **auth,  void *userData)
+ \typedef (*Fapi_CB_Auth)(char const *objectPath, char const *description, char **auth,  void *userData)
  \}
  \defgroup Fapi_SetBranchCB Fapi_SetBranchCB
  FAPI functions to invoke SetBranchCB.
  \{
  \fn Fapi_SetBranchCB(FAPI_CONTEXT *context, Fapi_CB_Branch callback,  void *userData)
- \typedef (*Fapi_CB_Branch)(FAPI_CONTEXT *context, char const *description, char const **branchNames, size_t numBranches, size_t *selectedBranch, void *userData)
+ \typedef (*Fapi_CB_Branch)(char const *objectPath, char const *description, char const **branchNames, size_t numBranches, size_t *selectedBranch, void *userData)
  \}
  \defgroup Fapi_SetSignCB Fapi_SetSignCB
  FAPI functions to invoke SetSignCB.
  \{
  \fn Fapi_SetSignCB(FAPI_CONTEXT *context, Fapi_CB_Sign callback, void *userData)
- \typedef (*Fapi_CB_Sign)(FAPI_CONTEXT *context, char const *description, char const *publicKey, char const *publicKeyHint, uint32_t hashAlg, uint8_t const *dataToSign, size_t dataToSignSize, uint8_t **signature, size_t *signatureSize,  void *userData)
+ \typedef (*Fapi_CB_Sign)(char const *objectPath, char const *description, char const *publicKey, char const *publicKeyHint, uint32_t hashAlg, uint8_t const *dataToSign, size_t dataToSignSize, uint8_t **signature, size_t *signatureSize,  void *userData)
  \fn Fapi_SetPolicyActionCB(
     FAPI_CONTEXT        *context,
     Fapi_CB_PolicyAction callback,
     void                *userData)
+   \typedef TSS2_RC (*Fapi_CB_PolicyAction)(char const *objectPath, char cnst *action, void *userData)
  \}
  \}
 */
@@ -2041,7 +2042,6 @@ and are marked according to the PC Client Profile Revision 01.03 v22:
  Provides functions for the execution of policies for object authorization.
 \{
 
-\fn static void clear_all_policies(FAPI_CONTEXT *context)
 \fn static TSS2_RC clear_current_policy(FAPI_CONTEXT *context)
 \fn static TSS2_RC create_session(
     FAPI_CONTEXT *context,
@@ -2069,15 +2069,11 @@ and are marked according to the PC Client Profile Revision 01.03 v22:
 \fn TSS2_RC append_object_to_list(void *object, NODE_OBJECT_T **object_list)
 \fn static void cleanup_policy_element(TPMT_POLICYELEMENT *policy)
 \fn static void cleanup_policy_elements(TPML_POLICYELEMENTS *policy)
-\fn static void cleanup_policy_object(POLICY_OBJECT * object)
 \fn static TSS2_RC copy_policy(TPMS_POLICY * dest,
         const TPMS_POLICY * src)
 \fn static TPML_POLICYBRANCHES * copy_policy_branches(const TPML_POLICYBRANCHES *from_branches)
 \fn static TSS2_RC copy_policy_element(const TPMT_POLICYELEMENT *from_policy, TPMT_POLICYELEMENT *to_policy)
 \fn static TPML_POLICYELEMENTS * copy_policy_elements(const TPML_POLICYELEMENTS *from_policy)
-\fn static TSS2_RC copy_policy_object(POLICY_OBJECT * dest, const POLICY_OBJECT * src)
-\fn static TSS2_RC copy_policyauthorization(TPMS_POLICYAUTHORIZATION * dest,
-        const TPMS_POLICYAUTHORIZATION * src)
 \fn static TSS2_RC create_dirs(const char *supdir, NODE_STR_T *dir_list, mode_t mode)
 \fn void free_string_list(NODE_STR_T *node)
 \fn char * get_description(IFAPI_OBJECT *object)
@@ -2651,6 +2647,8 @@ and are marked according to the PC Client Profile Revision 01.03 v22:
         json_object **jso)
 \fn TSS2_RC ifapi_json_TPMI_ALG_SYM_MODE_serialize(const TPMI_ALG_SYM_MODE in,
                                        json_object **jso)
+\fn TSS2_RC ifapi_json_TPMI_ALG_CIPHER_MODE_serialize(const TPMI_ALG_CIPHER_MODE in,
+                                       json_object **jso)
 \fn TSS2_RC ifapi_json_TPMI_ALG_SYM_OBJECT_serialize(const TPMI_ALG_SYM_OBJECT in,
         json_object **jso)
 \fn TSS2_RC ifapi_json_TPMI_ECC_CURVE_serialize(const TPMI_ECC_CURVE in, json_object **jso)
@@ -2905,6 +2903,8 @@ and are marked according to the PC Client Profile Revision 01.03 v22:
         TPMI_ALG_SIG_SCHEME *out)
 \fn TSS2_RC ifapi_json_TPMI_ALG_SYM_MODE_deserialize(json_object *jso,
         TPMI_ALG_SYM_MODE *out)
+\fn TSS2_RC ifapi_json_TPMI_ALG_CIPHER_MODE_deserialize(json_object *jso,
+        TPMI_ALG_CIPHER_MODE *out)
 \fn TSS2_RC ifapi_json_TPMI_ALG_SYM_OBJECT_deserialize(json_object *jso,
         TPMI_ALG_SYM_OBJECT *out)
 \fn TSS2_RC ifapi_json_TPMI_ALG_SYM_deserialize(json_object *jso, TPMI_ALG_SYM *out)

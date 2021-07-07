@@ -28,15 +28,17 @@ typedef struct _TSS2_SYS_OPAQUE_CONTEXT_BLOB TSS2_SYS_CONTEXT;
 #define TSS2_SYS_MAX_SESSIONS 3
 
 /* Input structure for authorization area(s). */
-typedef struct {
+typedef struct TSS2L_SYS_AUTH_COMMAND TSS2L_SYS_AUTH_COMMAND;
+struct TSS2L_SYS_AUTH_COMMAND {
     uint16_t count;
     TPMS_AUTH_COMMAND auths[TSS2_SYS_MAX_SESSIONS];
-} TSS2L_SYS_AUTH_COMMAND;
+};
 
-typedef struct {
+typedef struct TSS2L_SYS_AUTH_RESPONSE TSS2L_SYS_AUTH_RESPONSE;
+struct TSS2L_SYS_AUTH_RESPONSE {
     uint16_t count;
     TPMS_AUTH_RESPONSE auths[TSS2_SYS_MAX_SESSIONS];
-} TSS2L_SYS_AUTH_RESPONSE;
+};
 
 size_t  Tss2_Sys_GetContextSize(
     size_t maxCommandResponseSize);
@@ -585,7 +587,7 @@ TSS2_RC Tss2_Sys_EncryptDecrypt_Prepare(
     TSS2_SYS_CONTEXT *sysContext,
     TPMI_DH_OBJECT keyHandle,
     TPMI_YES_NO decrypt,
-    TPMI_ALG_SYM_MODE mode,
+    TPMI_ALG_CIPHER_MODE mode,
     const TPM2B_IV *ivIn,
     const TPM2B_MAX_BUFFER *inData);
 
@@ -599,7 +601,7 @@ TSS2_RC Tss2_Sys_EncryptDecrypt(
     TPMI_DH_OBJECT keyHandle,
     TSS2L_SYS_AUTH_COMMAND const *cmdAuthsArray,
     TPMI_YES_NO decrypt,
-    TPMI_ALG_SYM_MODE mode,
+    TPMI_ALG_CIPHER_MODE mode,
     const TPM2B_IV *ivIn,
     const TPM2B_MAX_BUFFER *inData,
     TPM2B_MAX_BUFFER *outData,
@@ -611,7 +613,7 @@ TSS2_RC Tss2_Sys_EncryptDecrypt2_Prepare(
     TPMI_DH_OBJECT keyHandle,
     const TPM2B_MAX_BUFFER *inData,
     TPMI_YES_NO decrypt,
-    TPMI_ALG_SYM_MODE mode,
+    TPMI_ALG_CIPHER_MODE mode,
     const TPM2B_IV *ivIn);
 
 TSS2_RC Tss2_Sys_EncryptDecrypt2_Complete(
@@ -625,7 +627,7 @@ TSS2_RC Tss2_Sys_EncryptDecrypt2(
     TSS2L_SYS_AUTH_COMMAND const *cmdAuthsArray,
     const TPM2B_MAX_BUFFER *inData,
     TPMI_YES_NO decrypt,
-    TPMI_ALG_SYM_MODE mode,
+    TPMI_ALG_CIPHER_MODE mode,
     const TPM2B_IV *ivIn,
     TPM2B_MAX_BUFFER *outData,
     TPM2B_IV *ivOut,
@@ -810,6 +812,33 @@ TSS2_RC Tss2_Sys_Certify(
     const TPM2B_DATA *qualifyingData,
     const TPMT_SIG_SCHEME *inScheme,
     TPM2B_ATTEST *certifyInfo,
+    TPMT_SIGNATURE *signature,
+    TSS2L_SYS_AUTH_RESPONSE *rspAuthsArray);
+
+TSS2_RC Tss2_Sys_CertifyX509_Prepare(
+    TSS2_SYS_CONTEXT *sysContext,
+    TPMI_DH_OBJECT objectHandle,
+    TPMI_DH_OBJECT signHandle,
+    const TPM2B_DATA *reserved,
+    const TPMT_SIG_SCHEME *inScheme,
+    const TPM2B_MAX_BUFFER *partialCertificate);
+
+TSS2_RC Tss2_Sys_CertifyX509_Complete(
+    TSS2_SYS_CONTEXT *sysContext,
+    TPM2B_MAX_BUFFER *addedToCertificate,
+    TPM2B_DIGEST *tbsDigest,
+    TPMT_SIGNATURE *signature);
+
+TSS2_RC Tss2_Sys_CertifyX509(
+    TSS2_SYS_CONTEXT *sysContext,
+    TPMI_DH_OBJECT objectHandle,
+    TPMI_DH_OBJECT signHandle,
+    TSS2L_SYS_AUTH_COMMAND const *cmdAuthsArray,
+    const TPM2B_DATA *reserved,
+    const TPMT_SIG_SCHEME *inScheme,
+    const TPM2B_MAX_BUFFER *partialCertificate,
+    TPM2B_MAX_BUFFER *addedToCertificate,
+    TPM2B_DIGEST *tbsDigest,
     TPMT_SIGNATURE *signature,
     TSS2L_SYS_AUTH_RESPONSE *rspAuthsArray);
 
@@ -2178,6 +2207,21 @@ TSS2_RC Tss2_Sys_Policy_AC_SendSelect(
     TPM2B_NAME *authHandleName,
     TPM2B_NAME *acName,
     TPMI_YES_NO includeObject,
+    TSS2L_SYS_AUTH_RESPONSE *rspAuthsArray);
+
+TSS2_RC Tss2_Sys_ACT_SetTimeout_Prepare(
+    TSS2_SYS_CONTEXT *sysContext,
+    TPMI_RH_ACT actHandle,
+    UINT32 startTimeout);
+
+TSS2_RC Tss2_Sys_ACT_SetTimeout_Complete(
+    TSS2_SYS_CONTEXT *sysContext);
+
+TSS2_RC Tss2_Sys_ACT_SetTimeout(
+    TSS2_SYS_CONTEXT *sysContext,
+    TPMI_RH_ACT actHandle,
+    TSS2L_SYS_AUTH_COMMAND const *cmdAuthsArray,
+    UINT32 startTimeout,
     TSS2L_SYS_AUTH_RESPONSE *rspAuthsArray);
 
 TSS2_RC Tss2_Sys_PolicyTemplate_Prepare(

@@ -328,7 +328,7 @@ tcti_device_cancel (
     TSS2_TCTI_CONTEXT *tctiContext)
 {
     /* Linux driver doesn't expose a mechanism to cancel commands. */
-    (void)(tctiContext);
+    UNUSED(tctiContext);
     return TSS2_TCTI_RC_NOT_IMPLEMENTED;
 }
 
@@ -351,6 +351,7 @@ tcti_device_get_poll_handles (
     *num_handles = 1;
     if (handles != NULL) {
         handles->fd = tcti_dev->fd;
+        handles->events = POLLIN | POLLOUT;
     }
 
     return TSS2_RC_SUCCESS;
@@ -365,8 +366,8 @@ tcti_device_set_locality (
      * Linux driver doesn't expose a mechanism for user space applications
      * to set locality.
      */
-    (void)(tctiContext);
-    (void)(locality);
+    UNUSED(tctiContext);
+    UNUSED(locality);
     return TSS2_TCTI_RC_NOT_IMPLEMENTED;
 }
 
@@ -411,6 +412,7 @@ Tss2_Tcti_Device_Init (
     tcti_common->state = TCTI_STATE_TRANSMIT;
     memset (&tcti_common->header, 0, sizeof (tcti_common->header));
     tcti_common->locality = 3;
+    tcti_common->partial = false;
 
     if (conf == NULL) {
         LOG_TRACE ("No TCTI device file specified");
