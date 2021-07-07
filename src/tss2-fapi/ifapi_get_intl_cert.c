@@ -194,7 +194,7 @@ base64_encode(const unsigned char* buffer)
 static char *
 base64_decode(unsigned char* buffer, size_t len, size_t *new_len)
 {
-    size_t i, unescape_len, r;
+    size_t i, unescape_len = 0, r;
     char *binary_data = NULL, *unescaped_string = NULL;
 
     LOG_INFO("Decoding the base64 encoded cert into binary form");
@@ -306,9 +306,10 @@ ifapi_get_intl_ek_certificate(FAPI_CONTEXT *context, TPM2B_PUBLIC *ek_public,
 {
     int rc = 1;
     unsigned char *hash = hash_ek_public(ek_public);
-    char *cert_ptr;
+    char *cert_ptr = NULL;
     char *cert_start = NULL, *cert_bin = NULL;
     char *b64 = base64_encode(hash);
+    *cert_buffer = NULL;
 
     if (!b64) {
         LOG_ERROR("base64_encode returned null");
@@ -375,6 +376,8 @@ out:
     if (rc == 0) {
         return TSS2_RC_SUCCESS;
     } else {
+        SAFE_FREE(cert_bin);
+        SAFE_FREE(cert_ptr);
         LOG_ERROR("Get INTEL EK certificate.");
         return TSS2_FAPI_RC_NO_CERT;
     }

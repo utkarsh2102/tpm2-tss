@@ -15,7 +15,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <assert.h>
 
 #include "tss2_fapi.h"
 
@@ -39,8 +38,8 @@ branch_callback(
     size_t       *selectedBranch,
     void         *userData)
 {
-    (void) description;
-    (void) userData;
+    UNUSED(description);
+    UNUSED(userData);
 
     if (strcmp(objectPath, "P_ECC/HS/SRK/mySignKey") != 0) {
         return_error(TSS2_FAPI_RC_BAD_VALUE, "Unexpected path");
@@ -155,11 +154,11 @@ test_fapi_key_create_policy_or_sign(FAPI_CONTEXT *context)
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
                   &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
-    assert(signature != NULL);
-    assert(publicKey != NULL);
-    assert(certificate != NULL);
-    assert(strlen(publicKey) > ASSERT_SIZE);
-    assert(strlen(certificate) > ASSERT_SIZE);
+    ASSERT(signature != NULL);
+    ASSERT(publicKey != NULL);
+    ASSERT(certificate != NULL);
+    ASSERT(strstr(publicKey, "BEGIN PUBLIC KEY"));
+    ASSERT(strstr(certificate, "BEGIN CERTIFICATE"));
 
     r = Fapi_Delete(context, "/");
     goto_if_error(r, "Error Fapi_Delete", error);

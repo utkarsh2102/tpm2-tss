@@ -85,9 +85,9 @@ tcti_tryagainerror_receive(TSS2_TCTI_CONTEXT * tctiContext,
                      uint8_t * response_buffer, int32_t timeout)
 {
     TSS2_TCTI_CONTEXT_TRYAGAINERROR *tcti = tcti_tryagainerror_cast(tctiContext);
-    (void) response_size;
-    (void) response_buffer;
-    (void) timeout;
+    UNUSED(response_size);
+    UNUSED(response_buffer);
+    UNUSED(timeout);
     tcti->count++;
     if (tcti->count == 1)
         return TSS2_TCTI_RC_TRY_AGAIN;
@@ -744,7 +744,7 @@ test_EncryptDecrypt(void **state)
 
     ESYS_TR keyHandle_handle = DUMMY_TR_HANDLE_KEY;
     TPMI_YES_NO decrypt = 0;
-    TPMI_ALG_SYM_MODE mode = TPM2_ALG_NULL;
+    TPMI_ALG_CIPHER_MODE mode = TPM2_ALG_NULL;
     TPM2B_IV ivIn = DUMMY_2B_DATA16(.buffer);
     TPM2B_MAX_BUFFER inData = DUMMY_2B_DATA(.buffer);
     TPM2B_MAX_BUFFER *outData;
@@ -770,7 +770,7 @@ test_EncryptDecrypt2(void **state)
     ESYS_TR keyHandle_handle = DUMMY_TR_HANDLE_KEY;
     TPM2B_MAX_BUFFER inData = DUMMY_2B_DATA(.buffer);
     TPMI_YES_NO decrypt = 0;
-    TPMI_ALG_SYM_MODE mode = TPM2_ALG_NULL;
+    TPMI_ALG_CIPHER_MODE mode = TPM2_ALG_NULL;
     TPM2B_IV ivIn = DUMMY_2B_DATA16(.buffer);
     TPM2B_MAX_BUFFER *outData;
     TPM2B_IV *ivOut;

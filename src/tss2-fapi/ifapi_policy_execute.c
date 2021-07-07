@@ -14,7 +14,6 @@
 #include "tss2_mu.h"
 #include "fapi_util.h"
 #include "fapi_crypto.h"
-//#include "fapi_policy.h"
 #include "ifapi_policy_execute.h"
 #include "ifapi_helpers.h"
 #include "ifapi_json_deserialize.h"
@@ -660,7 +659,7 @@ execute_policy_authorize(
 
     statecase(current_policy->state, POLICY_VERIFY);
         r = Esys_VerifySignature_Finish(esys_ctx, &ticket);
-        try_again_or_error(r, "Load external key.");
+        try_again_or_error(r, "Verify signature.");
 
         /* Execute policy authorize */
         policy->checkTicket = *ticket;
@@ -677,7 +676,7 @@ execute_policy_authorize(
 
     statecase(current_policy->state, POLICY_EXECUTE_FINISH);
         r = Esys_PolicyAuthorize_Finish(esys_ctx);
-        try_again_or_error(r, "Load external key.");
+        try_again_or_error(r, "Execute PolicyAuthorize.");
 
         r = Esys_FlushContext_Async(esys_ctx, current_policy->object_handle);
         goto_if_error(r, "FlushContext_Async", cleanup);
@@ -794,6 +793,7 @@ execute_policy_authorize_nv(
         r = Esys_PolicyAuthorizeNV_Finish(esys_ctx);
         return_try_again(r);
         goto_if_error(r, "FAPI PolicyAuthorizeNV_Finish", cleanup);
+        current_policy->state = POLICY_EXECUTE_INIT;
         break;
 
     statecasedefault(current_policy->state);
@@ -813,8 +813,6 @@ cleanup:
  * @param[in,out] policy The policy which defines the object whose secret
  *                is needed for policy execution.
  *                The policy digest will be added to the policy.
- * @param[in]     current_hash_alg The hash algorithm wich will be used for
- *                policy computation.
  * @param[in,out] current_policy The policy context which stores the state
  *                of the policy execution.
  * @retval TSS2_RC_SUCCESS on success.
@@ -846,11 +844,9 @@ static TSS2_RC
 execute_policy_secret(
     ESYS_CONTEXT *esys_ctx,
     TPMS_POLICYSECRET *policy,
-    TPMI_ALG_HASH hash_alg,
     IFAPI_POLICY_EXEC_CTX *current_policy)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)hash_alg;
 
     LOG_DEBUG("call");
 
@@ -891,6 +887,7 @@ execute_policy_secret(
                                      NULL);
         return_try_again(r);
         goto_if_error(r, "FAPI PolicyAuthorizeNV_Finish", error_cleanup);
+        current_policy->state = POLICY_EXECUTE_INIT;
         break;
 
     statecasedefault(current_policy->state);
@@ -962,7 +959,6 @@ execute_policy_counter_timer(
  *
  * @param[in,out] *esys_ctx The ESAPI context which is needed to execute the
  *                policy command.
- * @param[in,out] policy The policy indicating that physical presence is needed.
  * @param[in,out] current_policy The policy context which stores the state
  *                of the policy execution.
  * @retval TSS2_RC_SUCCESS on success.
@@ -975,11 +971,9 @@ execute_policy_counter_timer(
 static TSS2_RC
 execute_policy_physical_presence(
     ESYS_CONTEXT *esys_ctx,
-    TPMS_POLICYPHYSICALPRESENCE *policy,
     IFAPI_POLICY_EXEC_CTX *current_policy)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)policy;
 
     LOG_TRACE("call");
 
@@ -1012,7 +1006,6 @@ execute_policy_physical_presence(
 
  * @param[in,out] *esys_ctx The ESAPI context which is needed to execute the
  *                policy command.
- * @param[in,out] policy The policy indicating that a auth value is needed.
  * @param[in,out] current_policy The policy context which stores the state
  *                of the policy execution.
  * @retval TSS2_RC_SUCCESS on success.
@@ -1025,11 +1018,9 @@ execute_policy_physical_presence(
 static TSS2_RC
 execute_policy_auth_value(
     ESYS_CONTEXT *esys_ctx,
-    TPMS_POLICYAUTHVALUE *policy,
     IFAPI_POLICY_EXEC_CTX *current_policy)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)policy;
 
     LOG_TRACE("call");
 
@@ -1063,7 +1054,6 @@ execute_policy_auth_value(
  *
  * @param[in,out] *esys_ctx The ESAPI context which is needed to execute the
  *                policy command.
- * @param[in,out] policy The policy indicating that a auth value is needed.
  * @param[in,out] current_policy The policy context which stores the state
  *                of the policy execution.
  * @retval TSS2_RC_SUCCESS on success.
@@ -1076,11 +1066,9 @@ execute_policy_auth_value(
 static TSS2_RC
 execute_policy_password(
     ESYS_CONTEXT *esys_ctx,
-    TPMS_POLICYPASSWORD *policy,
     IFAPI_POLICY_EXEC_CTX *current_policy)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)policy;
 
     LOG_TRACE("call");
 
@@ -1428,7 +1416,7 @@ execute_policy_action(
     IFAPI_POLICY_EXEC_CTX *current_policy)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)(esys_ctx);
+    UNUSED(esys_ctx);
     LOG_TRACE("call");
 
     switch (current_policy->state) {
@@ -1438,6 +1426,7 @@ execute_policy_action(
         /* Execute the callback and try it again if the callback is not finished. */
         r = cb->cbaction(policy->action, cb->cbaction_userdata);
         try_again_or_error(r, "Execute policy action callback.");
+        current_policy->state = POLICY_EXECUTE_INIT;
         return r;
 
     statecasedefault(current_policy->state);
@@ -1491,7 +1480,6 @@ execute_policy_element(
     case POLICYSECRET:
         r = execute_policy_secret(esys_ctx,
                                   &policy->element.PolicySecret,
-                                  hash_alg,
                                   current_policy);
         try_again_or_error_goto(r, "Execute policy authorize", error);
         break;
@@ -1503,7 +1491,6 @@ execute_policy_element(
         break;
     case POLICYAUTHVALUE:
         r = execute_policy_auth_value(esys_ctx,
-                                      &policy->element.PolicyAuthValue,
                                       current_policy);
         try_again_or_error_goto(r, "Execute policy auth value", error);
         break;
@@ -1577,13 +1564,11 @@ execute_policy_element(
         break;
     case POLICYPHYSICALPRESENCE:
         r = execute_policy_physical_presence(esys_ctx,
-                                             &policy->element.PolicyPhysicalPresence,
                                              current_policy);
         try_again_or_error_goto(r, "Execute policy physical presence", error);
             break;
     case POLICYPASSWORD:
         r = execute_policy_password(esys_ctx,
-                                    &policy->element.PolicyPassword,
                                     current_policy);
         try_again_or_error_goto(r, "Execute policy password", error);
         break;

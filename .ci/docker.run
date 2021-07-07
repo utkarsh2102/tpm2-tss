@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: BSD-3-Clause
 
-set -e
+set -eo pipefail
 
-source $TRAVIS_BUILD_DIR/.ci/docker-prelude.sh
+source $DOCKER_BUILD_DIR/.ci/docker-prelude.sh
 
 export CONFIGURE_OPTIONS=
 
@@ -17,12 +17,6 @@ fi
 
 if [ -d ./config_test ]; then
   rm -rf config_test
-fi
-
-# Do not run tests when building on coverity_scan branch
-if [ "$COVERITY_SCAN_BRANCH" == 1 ]; then
-    echo "Coverity scan branch detected, not running build nor tests...exiting!"
-    exit 0
 fi
 
 if [ -z "$WITH_CRYPTO" ]; then
@@ -70,14 +64,14 @@ if [ "$CC" == "gcc" ]; then
 fi
 
 if [ "$SCANBUILD" == "yes" ]; then
-  scan-build --status-bugs ../configure --enable-unit --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
+  scan-build --status-bugs ../configure --enable-unit --enable-self-generated-certificate --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
 elif [ "$CC" == "clang" ]; then
-  ../configure --enable-unit --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
+  ../configure --enable-unit --enable-self-generated-certificate  --enable-integration --with-maxloglevel=none --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
 else
-  if [ "$WITH_TCTI" == "mssim"]; then
-    ../configure --with-sanitizer=undefined,address --disable-tcti-swtpm --enable-unit --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
+  if [ "$WITH_TCTI" == "mssim" ]; then
+    ../configure --with-sanitizer=undefined,address --disable-tcti-swtpm --enable-unit --enable-self-generated-certificate --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
   else
-    ../configure --with-sanitizer=undefined,address --enable-unit --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
+    ../configure --with-sanitizer=undefined,address --with-maxloglevel=none --enable-debug=yes --enable-unit --enable-self-generated-certificate --enable-integration --with-crypto=$WITH_CRYPTO $CONFIGURE_OPTIONS
   fi
 fi
 
@@ -97,34 +91,34 @@ pushd ./config_test
 if [ "$CC" == "gcc" ]; then
   # No TCTI - expect to fail
   echo "========================== START TEST - NO TCTI =========================="
-  (../configure --disable-doxygen-doc --enable-unit --enable-integration --disable-tcti-swtpm --disable-tcti-mssim --disable-tcti-device && exit 1) || echo "failed as expected";
+  (../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --disable-tcti-swtpm --disable-tcti-mssim --disable-tcti-device && exit 1) || echo "failed as expected";
   # only device TCTI
   echo "========================== START TEST - device TCTI =========================="
-  mkdir -p ./dev/tpm0 && ../configure --disable-doxygen-doc --enable-unit --enable-integration --disable-tcti-swtpm --disable-tcti-mssim --enable-tcti-device --with-device=./dev/tpm0
+  mkdir -p ./dev/tpm0 && ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --disable-tcti-swtpm --disable-tcti-mssim --enable-tcti-device --with-device=./dev/tpm0
   make -j check TESTS="test/unit/tcti-device" && rm -rf ./dev
   # only mssim TCTI
   echo "========================== START TEST - mssim TCTI =========================="
-  ../configure --disable-doxygen-doc --enable-unit --enable-integration --disable-tcti-swtpm --enable-tcti-mssim --disable-tcti-device
+  ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --disable-tcti-swtpm --enable-tcti-mssim --disable-tcti-device
   make -j check TESTS="test/unit/tcti-mssim"
   # device and mssim TCTIs
   echo "========================== START TEST - mssim & device TCTI =========================="
-  ../configure --disable-doxygen-doc --enable-unit --enable-integration --disable-tcti-swtpm --enable-tcti-mssim --enable-tcti-device
+  ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --disable-tcti-swtpm --enable-tcti-mssim --enable-tcti-device
   make -j check TESTS="test/unit/tcti-device test/unit/tcti-mssim"
   # only swtmp TCTI
   echo "========================== START TEST - swtpm TCTI =========================="
-  ../configure --disable-doxygen-doc --enable-unit --enable-integration --enable-tcti-swtpm --disable-tcti-mssim --disable-tcti-device
+  ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --enable-tcti-swtpm --disable-tcti-mssim --disable-tcti-device
   make -j check TESTS="test/unit/tcti-swtpm"
   # swtmp and device TCTIs
   echo "========================== START TEST - swtpm & device TCTI =========================="
-  ../configure --disable-doxygen-doc --enable-unit --enable-integration --enable-tcti-swtpm --disable-tcti-mssim --enable-tcti-device
+  ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --enable-tcti-swtpm --disable-tcti-mssim --enable-tcti-device
   make -j check TESTS="test/unit/tcti-swtpm test/unit/tcti-device"
   # swtmp and mssim TCTIs
   echo "========================== START TEST - swtpm & mssim TCTI =========================="
-  ../configure --disable-doxygen-doc --enable-unit --enable-integration --enable-tcti-swtpm --enable-tcti-mssim --disable-tcti-device
+  ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --enable-tcti-swtpm --enable-tcti-mssim --disable-tcti-device
   make -j check TESTS="test/unit/tcti-swtpm test/unit/tcti-mssim"
   # all TCTIs
   echo "========================== START TEST - swtpm & mssim & device TCTI =========================="
-  ../configure --disable-doxygen-doc --enable-unit --enable-integration --enable-tcti-swtpm --enable-tcti-mssim --enable-tcti-device
+  ../configure --disable-doxygen-doc --enable-unit --enable-self-generated-certificate --enable-integration --enable-tcti-swtpm --enable-tcti-mssim --enable-tcti-device
   make -j check TESTS="test/unit/tcti-swtpm test/unit/tcti-mssim test/unit/tcti-device"
 fi # CC == gcc
 popd
@@ -134,8 +128,11 @@ fi # TEST_TCTI_CONFIG
 # so people can verify the rest of their patch works in CI before dying.
 # git diff --check fails with a non-zero return code causing the shell to die
 # as it has a set -e executed.
-check_branch="origin/${TRAVIS_BRANCH:-master}"
-[ -z "$TRAVIS_TAG" ] && git fetch "$check_branch" && git diff --check "$check_branch"
+if [ -n "$BASE_REF" ]; then
+  echo "Running whitespace check"
+  git fetch origin "$BASE_REF"
+  git diff --check "origin/$BASE_REF"
+fi
 
 if [ "$ENABLE_COVERAGE" == "true" ]; then
     bash <(curl -s https://codecov.io/bash)

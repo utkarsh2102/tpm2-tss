@@ -334,6 +334,24 @@ src_tss2_tcti_libtss2_tcti_mssim_la_SOURCES  = \
     src/tss2-tcti/tcti-mssim.c
 endif # ENABLE_TCTI_MSSIM
 
+# tcti pcap library
+if ENABLE_TCTI_PCAP
+libtss2_tcti_pcap = src/tss2-tcti/libtss2-tcti-pcap.la
+tss2_HEADERS += $(srcdir)/include/tss2/tss2_tcti_pcap.h
+lib_LTLIBRARIES += $(libtss2_tcti_pcap)
+pkgconfig_DATA += lib/tss2-tcti-pcap.pc
+EXTRA_DIST += lib/tss2-tcti-pcap.map # joho TODO enable tcti-pcap for Win (.def, visual studio files
+
+if HAVE_LD_VERSION_SCRIPT
+src_tss2_tcti_libtss2_tcti_pcap_la_LDFLAGS  = -Wl,--version-script=$(srcdir)/lib/tss2-tcti-pcap.map
+endif # HAVE_LD_VERSION_SCRIPT
+src_tss2_tcti_libtss2_tcti_pcap_la_LIBADD   = $(libtss2_tctildr) $(libtss2_mu) $(libutil)
+src_tss2_tcti_libtss2_tcti_pcap_la_SOURCES  = \
+    src/tss2-tcti/tcti-common.c \
+    src/tss2-tcti/tcti-pcap-builder.c \
+    src/tss2-tcti/tcti-pcap.c
+endif # ENABLE_TCTI_PCAP
+
 # tcti library for sub-process commands
 if ENABLE_TCTI_CMD
 libtss2_tcti_cmd = src/tss2-tcti/libtss2-tcti-cmd.la
@@ -487,20 +505,26 @@ EXTRA_DIST +=  \
     test/data/fapi/P_RSA_EK_persistent.json \
     test/data/fapi/P_RSA.json \
     test/data/fapi/P_RSA2.json \
+    test/data/fapi/P_RSA_nameAlg_sha1.json \
     test/data/fapi/P_ECC_sh_eh_policy.json \
     test/data/fapi/P_ECC_error.json \
     test/data/fapi/P_RSA_sh_policy.json \
     test/data/fapi/P_RSA256.json \
     test/data/fapi/P_ECC.json \
     test/data/fapi/policy/pol_pcr16_0.json \
+    test/data/fapi/policy/pol_pcr16_0_rsa_authorized.json \
+    test/data/fapi/policy/pol_pcr16_0_ecc_authorized.json \
     test/data/fapi/policy/pol_pcr16_0_fail.json \
     test/data/fapi/policy/pol_pcr16_0_or.json \
     test/data/fapi/policy/pol_pcr8_0.json \
     test/data/fapi/policy/pol_nv.json \
+    test/data/fapi/policy/pol_nv_counter.json \
     test/data/fapi/policy/pol_nv_written.json \
     test/data/fapi/policy/pol_signed.json \
     test/data/fapi/policy/pol_signed_ecc.json \
     test/data/fapi/policy/pol_authorize.json \
+    test/data/fapi/policy/pol_authorize_rsa_pem.json \
+    test/data/fapi/policy/pol_authorize_ecc_pem.json \
     test/data/fapi/policy/pol_authorize_outer.json \
     test/data/fapi/policy/pol_authorize_nv.json \
     test/data/fapi/policy/pol_secret.json \
@@ -515,13 +539,14 @@ EXTRA_DIST +=  \
     test/data/fapi/policy/pol_name_hash.json \
     test/data/fapi/policy/pol_pcr16_read.json \
     test/data/fapi/policy/pol_action.json \
-    test/data/fapi/policy/pol_cphash.json
+    test/data/fapi/policy/pol_cphash.json \
+    test/data/fapi/policy/pol_or_read_write_secret.json
 
 src_tss2_fapi_libtss2_fapi_la_LIBADD  = $(libtss2_sys) $(libtss2_mu) $(libtss2_esys) \
     $(libutil) $(libtss2_tctildr)
 
 src_tss2_fapi_libtss2_fapi_la_SOURCES = $(TSS2_FAPI_SRC)
-src_tss2_fapi_libtss2_fapi_la_CFLAGS  = $(AM_CFLAGS) -I$(srcdir)/src/tss2-fapi
+src_tss2_fapi_libtss2_fapi_la_CFLAGS  = $(AM_CFLAGS) -I$(srcdir)/src/tss2-fapi $(JSONC_CFLAGS) $(CURL_CFLAGS)
 src_tss2_fapi_libtss2_fapi_la_LDFLAGS = $(AM_LDFLAGS) $(LIBCRYPTO_LIBS) $(JSONC_LIBS) $(CURL_LIBS)
 if HAVE_LD_VERSION_SCRIPT
 src_tss2_fapi_libtss2_fapi_la_LDFLAGS += -Wl,--version-script=$(srcdir)/lib/tss2-fapi.map
@@ -588,8 +613,8 @@ define make_parent_dir
 endef
 
 define make_tss_user_and_group
-    (id -g tss || groupadd -r tss) && \
-    (id -u tss || useradd -r -g tss tss)
+    (id -g tss 2>/dev/null || groupadd -r tss) && \
+    (id -u tss 2>/dev/null || useradd -r -g tss tss)
 endef
 
 define make_tss_dir
@@ -608,17 +633,17 @@ define make_fapi_dirs
 endef
 
 define set_fapi_permissions
-    ($(call set_tss_permissions,$(DESTDIR)$(runstatedir)/tpm2-tss)
-    ($(call set_tss_permissions,$(DESTDIR)$(localstatedir)/lib/tpm2-tss)
+    ($(call set_tss_permissions,$(DESTDIR)$(runstatedir)/tpm2-tss))
+    ($(call set_tss_permissions,$(DESTDIR)$(localstatedir)/lib/tpm2-tss))
 endef
 
 define check_dir
-    if [ ! -d "$1" ]; then echo "*** WARNING *** Directory $1 could not be created"; fi
+    if [ ! -d "$1" ]; then echo "WARNING Directory $1 could not be created"; fi
 endef
 
 define check_fapi_dirs
-    $(call check_dir,$(DESTDIR)$(runstatedir)/tpm2-tss/eventlog/)
-    $(call check_dir,$(DESTDIR)$(localstatedir)/lib/tpm2-tss/system/keystore/)
+    ($(call check_dir,$(DESTDIR)$(runstatedir)/tpm2-tss/eventlog/))
+    ($(call check_dir,$(DESTDIR)$(localstatedir)/lib/tpm2-tss/system/keystore/))
 endef
 
 ### Man Pages
@@ -665,9 +690,22 @@ EXTRA_DIST += dist/tpm-udev.rules
 
 install-dirs:
 if HOSTOS_LINUX
-	(systemd-sysusers && systemd-tmpfiles --create) || \
-	($(call make_tss_user_and_group) && $(call make_fapi_dirs) && ($call set_fapi_permissions)) || true
-	$(call check_fapi_dirs)
+if SYSD_SYSUSERS
+	@echo "systemd-sysusers $(DESTDIR)$(sysconfdir)/sysusers.d/tpm2-tss.conf"
+	@systemd-sysusers $(DESTDIR)$(sysconfdir)/sysusers.d/tpm2-tss.conf || echo "WARNING Failed to create the tss user and group"
+else
+	@echo "call make_tss_user_and_group"
+	@$(call make_tss_user_and_group) || echo "WARNING Failed to create the tss user and group"
+endif
+if SYSD_TMPFILES
+	@echo "systemd-tmpfiles --create $(DESTDIR)$(sysconfdir)/tmpfiles.d/tpm2-tss-fapi.conf"
+	@systemd-tmpfiles --create $(DESTDIR)$(sysconfdir)/tmpfiles.d/tpm2-tss-fapi.conf|| echo "WARNING Failed to create the FAPI directories with the correct permissions"
+else
+	@echo "(call make_fapi_dirs) && (call set_fapi_permissions)"
+	@-$(call make_fapi_dirs) && $(call set_fapi_permissions) || echo "WARNING Failed to create the FAPI directories with the correct permissions"
+endif
+	@echo "call check_fapi_dirs"
+	@$(call check_fapi_dirs)
 endif
 
 install-data-hook: install-dirs
@@ -695,6 +733,7 @@ EXTRA_DIST += \
     man/Tss2_TctiLdr_FreeInfo.3.in \
     man/Tss2_TctiLdr_GetInfo.3.in \
     man/Tss2_TctiLdr_Initialize.3.in \
+    man/tss2-tcti-pcap.7.in \
     man/tss2-tcti-device.7.in \
     man/man7/tss2-tcti-swtpm.7 \
     man/tss2-tcti-mssim.7.in \

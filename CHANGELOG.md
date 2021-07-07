@@ -3,43 +3,65 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 
-## [3.0.3] - 2020-11-25
-### Changed or Fixed
-- Fix Regression in Fapi_List
-- Fix memory leak in policy calculation
-
-## [3.0.2] - 2020-11-20
-### Changed or Fixed
-- FAPI: Fix setting of the system flag of NV objects
+## [3.1.0] - 2021-05-17
+### Fixed
+- Fixed possible access outside the array in ifapi_calculate_tree.
+- Fix CVE-2020-24455 FAPI PolicyPCR not instatiating correctly
+  Note: that all TPM object created with a PolicyPCR with the currentPcrs
+  and currentPcrsAndBank options have been created with an incorrect policy
+  that ommits PCR checks. All these objects have to be recreated!
+- Fixed segfault in Fapi_Finalize where a free of a constant string could occur.
+- Fixed binding to ESYS_TR_RH_NULL for ESYS auth sessions.
+- Fixed read eagain error handling for freeBSD.
+- Fixed error cleanup for key loading and policy execution.
+- Fixed initialization of default log_dir.
+- Fixed cleanup in several error cases in Fapi.
+- Added initialise 'out' parameter in ifapi_json_IFAPI_CONFIG_deserialize.
+- Fixed Regression in Fapi_List.
+- Fixed memory leak in policy calculation.
+- Fixed setting of the system flag of NV objects:
   This will let NV object metadata be created system-wide always instead of
   locally in the user. Existing metadata will remain in the user directory.
   It can be moved to the corresponding systemstore manually if needed.
-- FAPI: Fix policy searching, when a policyRef was provided
-- FAPI: Accept EK-Certs without CRL dist point
-- FAPI: Fix return codes of Fapi_List
-- FAPI: Fix memleak in policy execution
-- FAPI: Fix coverity NULL-pointer check
-- FAPI: Set the written flag of NV objects in FAPI PolicyNV commands
-- FAPI: Fix deleting of policy files.
-- FAPI: Fix wrong file loading during object search.
-- Fapi: Fix memory leak
-- Fapi: Fix potential NULL-Dereference
-- Fapi: Remove superfluous NULL check
-- Fix a memory leak in async keystore load.
+- Fixed fapi policy searching, when a policyRef was provided.
+- Fapi accepts EK-Certs without CRL dist point.
+- Fixed bad return codes in Fapi_List.
+- Fixed memleak in Fapi policy execution.
+- Fixed coverity NULL-pointer check in Fapi.
+- Fixed the written flag of NV objects in FAPI PolicyNV commands being unset.
+- Fixed deleting of policy files.
+- Fixed wrong file loading during object search.
+- Fixed a memory leak in async keystore load.
+- Fixed bug in FAPI NV creation with custom index values.
+- Fixed leftover sessions in error cases in FAPI.
+- Fixed execution of FAPI policies in some cases.
+- Fixed  handling 0x hex prefixes for TPMU_HA in JSON encoding.
+- Fixed fix doxygen header of function iesys_update_session_flags.
+- Fixed issue where nonceTPM was included twice in HMAC.
+- Fixed issue of unused variable when enabling lower default log levels.
+- Fixed 'partial' may be used uninitialized in tcti-device.
 
-## [3.0.1] - 2020-09-23
-### Changed or Fixed
-- Fix CVE-2020-24455 FAPI PolicyPCR not instatiating correctly
-  Note that all TPM object created with a PolicyPCR with the currentPcrs
-  and currentPcrsAndBank options have been created with an incorrect policy
-  that ommits PCR checks. All these objects have to be recreated!
-- Fix bug in FAPI NV creation with custom index values
-- Cleanup of leftover sessions in error cases in FAPI
-- Better error messages in several FAPI errors
-- Add checks to FAPI policy paths
-- Add checks if FAPI is correctly provisioned
-- Fix execution of FAPI policies in some cases
-- Allow 0x prefixes for TPMU_HA in JSON encoding
+### Added
+- Added two new TPM commands TPM2_CC_CertifyX509 and TPM2_CC_ACT_SetTimeout
+  along with SYS and ESYS API calls, new structures definitions, and marshal
+  funtions for them. This make the TSS2 alligned with TPM2 1.59 specification.
+- Support for auth values larger than an objects nameAlg for NV and key objects.
+- Async mode of operation for mssim TCTI module
+- Added pcap TCTI.
+- Added GlobalSign TPM Root CA certs to FAPI cert store.
+- Added support for auth value sizes bigger than the size of the name hash alg.
+  for keys and NV objects.
+- Added better error messages in several FAPI errors.
+- Added checks to FAPI policy paths.
+- Added checks if FAPI is correctly provisioned.
+
+### Changed
+- Changed CI from Travis to GH actions
+- Changed the default hash algorithm from sha1 to sha256 in all FAPI
+  integration tests
+- Changed tests to use SHA256 over SHA1.
+- Changed EncryptDecrypt mode type to align with TPM2.0 spec 1.59.
+
 
 ## [3.0.0] - 2020-08-05
 ### Changed or Fixed
@@ -448,13 +470,13 @@ resourcemgr.
 communicating with a real TPM.
 ### Changed
 - Rearranged directory structure in a more logical fashion.
-- Changed name of Linux makefiles from “makefile.linux” to makefile. This was
+- Changed name of Linux makefiles from "makefile.linux" to makefile. This was
 done in preparation for autotools porting (future enhancement).
-- Changed tpm library’s windows makefile from “makefile” to “windows.mak”.
+- Changed tpm library's windows makefile from "makefile" to "windows.mak".
 - Changed all makefiles and Visual Studio solution and project files to work
 with new directory structure.
 - Split out debug and TPM platform command code in tpmsockets.cpp into
-separate files. This code didn’t belong in this file.
+separate files. This code didn't belong in this file.
 
 ## [0.97] - 2015-??-??
 ### Added
@@ -554,7 +576,7 @@ at the size.
 and CopySensitiveCreateIn: not handling NULL outpul parameters correctly.
 - Changes all instances of calls to ExecuteFinish to a timeout that works for
 all cases including communicating with the simulator over the network.
-- Fixed call to LoadExternal in TestUnseal--needed to pass in a NULL pointer
+- Fixed call to LoadExternal in TestUnseal: needed to pass in a NULL pointer
 for the inSensitive parameter.
 - Fixed bug in CreatePrimary: not passing correct pointer for inSensitive.
 - Fixed timeouts for all ExecuteFinish calls in test application.
@@ -586,11 +608,11 @@ the ContextSave command failed.
 initialized was re-initing the whole driver.
 - Updated to latest 1.19 header files.
 - Fixed bugs in resource manager:
-- FindOldestSession wasn't working correctly—it was just finding the first
+- FindOldestSession wasn't working correctly: it was just finding the first
 one.
 - HandleGap needed to un-gap all the session contexts from the older interval.
 It wasn't doing that.
-- Fixed bug in handling of command line options—specifying none would cause
+- Fixed bug in handling of command line options: specifying none would cause
 program to error out.
 - Fixed issues in cleanup of TestStartAuthSession test. It was leaving some
 sessions alive.
@@ -770,7 +792,7 @@ out of entries because we weren't removing sessions that were closed.
 set to 0xff. Now the high nibble is left intact so that applications can
 determine the type of the handle.
 ### Notes
-1. Testing is not comprehensive. See test code to see what’s tested. Please
+1. Testing is not comprehensive. See test code to see what's tested. Please
 report any bugs found so that fixes can be rolled out.
 2. Range checks within SAPI code not yet implemented.
 3. Still need to add support for separate debug and production builds.
@@ -802,9 +824,9 @@ to all the other commands.
 ## [0.80] - 2013-11-19
 ### Added
 - Added code to create a new session for reading/writing the NV index after
-it’s first written. This tests the other case for bound sessions.
+it's first written. This tests the other case for bound sessions.
 - Added routine to start policy sessions.
-- Added policy test code--not used currently.
+- Added policy test code: not used currently.
 ### Changed
 - Fixed bugs in resource manager.
 - Fixed bugs with salted session tests.
@@ -877,7 +899,7 @@ function.
 - Updated headers with Intel license text.
 - Split sockets driver into separate code module.
 - SALTED session test fixes:
-  * Fixed CopyRSAEncryptIon function--wasn't handling some cases correctly.
+  * Fixed CopyRSAEncryptIon function: wasn't handling some cases correctly.
   * Backed out change to make parameterSize passed to ComputeSessionHmacPtr
 function a UINT16. Needs to be UINT32.
   * For ComputeSessionHmacPtr, changed parameterSize to UINT16 to fix build

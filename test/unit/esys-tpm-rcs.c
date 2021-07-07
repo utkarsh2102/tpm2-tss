@@ -53,9 +53,9 @@ static TSS2_RC
 tcti_tpmerror_transmit(TSS2_TCTI_CONTEXT * tctiContext,
                       size_t size, const uint8_t * buffer)
 {
-    (void)(tctiContext);
-    (void)(size);
-    (void)(buffer);
+    UNUSED(tctiContext);
+    UNUSED(size);
+    UNUSED(buffer);
 
     return TSS2_RC_SUCCESS;
 }
@@ -71,8 +71,8 @@ tcti_tpmerror_receive(TSS2_TCTI_CONTEXT * tctiContext,
                      size_t * response_size,
                      uint8_t * response_buffer, int32_t timeout)
 {
-    (void)(tctiContext);
-    (void) timeout;
+    UNUSED(tctiContext);
+    UNUSED(timeout);
 
     *response_size = sizeof(response);
     if (response_buffer != NULL)
@@ -84,7 +84,7 @@ tcti_tpmerror_receive(TSS2_TCTI_CONTEXT * tctiContext,
 static void
 tcti_tpmerror_finalize(TSS2_TCTI_CONTEXT * tctiContext)
 {
-    (void)(tctiContext);
+    UNUSED(tctiContext);
 }
 
 static TSS2_RC
@@ -724,7 +724,7 @@ test_EncryptDecrypt(void **state)
 
     ESYS_TR keyHandle_handle = DUMMY_TR_HANDLE_KEY;
     TPMI_YES_NO decrypt = 0;
-    TPMI_ALG_SYM_MODE mode = TPM2_ALG_NULL;
+    TPMI_ALG_CIPHER_MODE mode = TPM2_ALG_NULL;
     TPM2B_IV ivIn = DUMMY_2B_DATA16(.buffer);
     TPM2B_MAX_BUFFER inData = DUMMY_2B_DATA(.buffer);
     TPM2B_MAX_BUFFER *outData;
@@ -750,7 +750,7 @@ test_EncryptDecrypt2(void **state)
     ESYS_TR keyHandle_handle = DUMMY_TR_HANDLE_KEY;
     TPM2B_MAX_BUFFER inData = DUMMY_2B_DATA(.buffer);
     TPMI_YES_NO decrypt = 0;
-    TPMI_ALG_SYM_MODE mode = TPM2_ALG_NULL;
+    TPMI_ALG_CIPHER_MODE mode = TPM2_ALG_NULL;
     TPM2B_IV ivIn = DUMMY_2B_DATA16(.buffer);
     TPM2B_MAX_BUFFER *outData;
     TPM2B_IV *ivOut;

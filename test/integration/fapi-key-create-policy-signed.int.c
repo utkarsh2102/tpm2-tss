@@ -14,7 +14,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <assert.h>
 
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
@@ -107,10 +106,10 @@ signatureCallback(
     size_t         *signatureSize,
     void           *userData)
 {
-    (void)description;
-    (void)publicKey;
-    (void)publicKeyHint;
     uint8_t *aux_signature = NULL;
+    UNUSED(description);
+    UNUSED(publicKey);
+    UNUSED(publicKeyHint);
 
     if (!objectPath) {
         return_error(TSS2_FAPI_RC_BAD_VALUE, "No path.");
@@ -121,7 +120,7 @@ signatureCallback(
         return TSS2_FAPI_RC_GENERAL_FAILURE;
     }
 
-    if (hashAlg != TPM2_ALG_SHA1) {
+    if (hashAlg != TPM2_ALG_SHA256) {
         LOG_ERROR("hashAlg is not correct, %u != %u", hashAlg, TPM2_ALG_SHA256);
         return TSS2_FAPI_RC_GENERAL_FAILURE;
     }
@@ -132,7 +131,7 @@ signatureCallback(
     EVP_MD_CTX *mdctx = NULL;
     EVP_PKEY_CTX *pctx = NULL;
 
-    const EVP_MD *ossl_hash = EVP_sha1();
+    const EVP_MD *ossl_hash = EVP_sha256();
     chknull(ossl_hash);
 
     LOGBLOB_DEBUG(dataToSign, dataToSignSize, "Data to be signed");
@@ -283,16 +282,16 @@ test_fapi_key_create_policy_signed(FAPI_CONTEXT *context)
                   &digest.buffer[0], digest.size, &signature, &signatureSize,
                   &publicKey, &certificate);
     goto_if_error(r, "Error Fapi_Sign", error);
-    assert(signature != NULL);
-    assert(publicKey != NULL);
-    assert(certificate != NULL);
-    assert(strlen(publicKey) > ASSERT_SIZE);
-    assert(strlen(certificate) > ASSERT_SIZE);
+    ASSERT(signature != NULL);
+    ASSERT(publicKey != NULL);
+    ASSERT(certificate != NULL);
+    ASSERT(strstr(publicKey, "BEGIN PUBLIC KEY"));
+    ASSERT(strstr(certificate, "BEGIN CERTIFICATE"));
 
     r = Fapi_List(context, "/", &pathList);
     goto_if_error(r, "Error Fapi_List", error);
-    assert(pathList != NULL);
-    assert(strlen(pathList) > ASSERT_SIZE);
+    ASSERT(pathList != NULL);
+    ASSERT(strlen(pathList) > ASSERT_SIZE);
 
     fprintf(stderr, "\n%s\n", pathList);
 

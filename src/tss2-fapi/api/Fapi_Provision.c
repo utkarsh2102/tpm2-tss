@@ -797,7 +797,11 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_PREPARE_READ_ROOT_CERT);
             /* Prepare reading of root certificate. */
+            root_ca_file = NULL;
+#ifdef SELF_GENERATED_CERTIFICATE
+#pragma message ( "*** Allow self generated certifcate ***" )
             root_ca_file = getenv("FAPI_TEST_ROOT_CERT");
+#endif
             if (!root_ca_file) {
                 context->state = PROVISION_EK_CHECK_CERT;
                 return TSS2_FAPI_RC_TRY_AGAIN;
@@ -848,7 +852,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_EK_WRITE);
             /* Finish writing the EK to the key store */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             goto_if_error_reset_state(r, "write_finish failed", error_cleanup);
 
@@ -993,7 +997,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_SRK_WRITE);
             /* Finish writing the SRK to the key store */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             goto_if_error_reset_state(r, "write_finish failed", error_cleanup);
 
@@ -1125,7 +1129,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_WRITE_LOCKOUT);
             /* Finish writing the lockout hierarchy to the key store */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             goto_if_error_reset_state(r, "write_finish failed", error_cleanup);
 
@@ -1194,7 +1198,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_WRITE_EH);
             /* Finish writing the endorsement hierarchy to the key store */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             return_if_error_reset_state(r, "write_finish failed");
 
@@ -1265,7 +1269,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_WRITE_SH);
             /* The onwer hierarchy object will be written to key store. */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             goto_if_error_reset_state(r, "write_finish failed", error_cleanup);
 
@@ -1289,7 +1293,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_WRITE_NULL);
             /* The null hierarchy object will be written to key store. */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             goto_if_error_reset_state(r, "write_finish failed", error_cleanup);
 
@@ -1373,7 +1377,7 @@ Fapi_Provision_Finish(FAPI_CONTEXT *context)
 
         statecase(context->state, PROVISION_WRITE_HIERARCHY);
             /* Finish writing the hierarchy to the key store */
-            r = ifapi_keystore_store_finish(&context->keystore, &context->io);
+            r = ifapi_keystore_store_finish(&context->io);
             return_try_again(r);
             goto_if_error_reset_state(r, "write_finish failed", error_cleanup);
 

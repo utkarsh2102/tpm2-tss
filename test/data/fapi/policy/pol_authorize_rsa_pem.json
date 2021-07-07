@@ -1,0 +1,17 @@
+{
+    "description":"Description pol_authorize",
+    "policy":[
+        {
+            "type": "POLICYAUTHORIZE",
+            "policyRef": [ 1, 2, 3, 4, 5 ],
+			"keyPEM": "-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnPQK8IACQZ6kbhWW4Bpm
+nyLiQzGzpDUB4US4ltdhnauyHOiLOidQlRf6OHBVQ7TELDMYydID2/U7/lnwWUJm
+a+xonItYWjjdPiU8fGIry029FTG2qqSSZg4oqa7fcxxNOAvUyuHitmzVnUT4xGCT
+wjvxNR50a6td+dSiN0dAm5DTiRuhVSxmUB3Kw9OP3pwYGCnfWkGQTeYXURJycQt6
+qsM79xI13nxLrtyxONmfRwgq+G0txdS4m3bxDwCQpenF/VcrkB14wPeWrGd/7Yap
+4kXOlv6HW7O2g120euH6A68jSjnrWYj/bAEpvDi09UU1a/d0LHbE3FGn0Dip+dmJ
+iQIDAQAB\n-----END PUBLIC KEY-----"
+		}
+    ]
+}

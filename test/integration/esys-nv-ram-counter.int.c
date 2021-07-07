@@ -65,7 +65,7 @@ test_esys_nv_ram_counter(ESYS_CONTEXT * esys_context)
     r = Esys_StartAuthSession(esys_context, ESYS_TR_NONE, ESYS_TR_NONE,
                               ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
                               &nonceCaller,
-                              TPM2_SE_HMAC, &symmetric, TPM2_ALG_SHA1,
+                              TPM2_SE_HMAC, &symmetric, TPM2_ALG_SHA256,
                               &session);
     goto_if_error(r, "Error: During initialization of session", error);
 #endif /* TEST_SESSION */
@@ -73,12 +73,17 @@ test_esys_nv_ram_counter(ESYS_CONTEXT * esys_context)
     TPM2B_AUTH auth = {.size = 20,
                        .buffer={10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
                                 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}};
+#ifdef TEST_LARGE_AUTH
+     for (int i = 0; i < 33; i++)
+        auth.buffer[i] = i;
+     auth.size = 33;
+#endif
 
     TPM2B_NV_PUBLIC publicInfo = {
         .size = 0,
         .nvPublic = {
             .nvIndex =TPM2_NV_INDEX_FIRST,
-            .nameAlg = TPM2_ALG_SHA1,
+            .nameAlg = TPM2_ALG_SHA256,
             .attributes = (
                 TPMA_NV_OWNERWRITE |
                 TPMA_NV_AUTHWRITE |

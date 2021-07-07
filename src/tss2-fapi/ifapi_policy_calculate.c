@@ -36,7 +36,7 @@
  */
 static void
 copy_policy_digest(TPML_DIGEST_VALUES *dest, TPML_DIGEST_VALUES *src,
-                   size_t digest_idx, size_t hash_size, char *txt)
+                   size_t digest_idx, size_t hash_size, char *txt MAYBE_UNUSED)
 {
     memcpy(&dest->digests[digest_idx].digest, &src->digests[digest_idx].digest,
            hash_size);
@@ -54,8 +54,10 @@ copy_policy_digest(TPML_DIGEST_VALUES *dest, TPML_DIGEST_VALUES *src,
  * @param[in] txt Text which will be used for additional logging information.
  */
 static void
-log_policy_digest(TPML_DIGEST_VALUES *dest, size_t digest_idx, size_t hash_size,
-                  char *txt)
+log_policy_digest(TPML_DIGEST_VALUES *dest MAYBE_UNUSED,
+                  size_t digest_idx MAYBE_UNUSED,
+                  size_t hash_size MAYBE_UNUSED,
+                  char *txt MAYBE_UNUSED)
 {
     LOGBLOB_DEBUG((uint8_t *)&dest->digests[digest_idx].digest, hash_size,
                   "Digest %s", txt);
@@ -646,12 +648,10 @@ cleanup:
  */
 TSS2_RC
 ifapi_calculate_policy_physical_presence(
-    TPMS_POLICYPHYSICALPRESENCE *policy,
     TPML_DIGEST_VALUES *current_digest,
     TPMI_ALG_HASH current_hash_alg)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)policy;
 
     LOG_DEBUG("call");
 
@@ -666,7 +666,6 @@ ifapi_calculate_policy_physical_presence(
  *
  * The policy will be updated with the function ifapi_calculate_simple_policy()
  *
- * @param[in] policy The policy auth value.
  * @param[in,out] current_digest The digest list which has to be updated.
  * @param[in] current_hash_alg The hash algorithm used for the policy computation.
  *
@@ -679,12 +678,10 @@ ifapi_calculate_policy_physical_presence(
  */
 TSS2_RC
 ifapi_calculate_policy_auth_value(
-    TPMS_POLICYAUTHVALUE *policy,
     TPML_DIGEST_VALUES *current_digest,
     TPMI_ALG_HASH current_hash_alg)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)policy;
 
     LOG_DEBUG("call");
 
@@ -699,7 +696,6 @@ ifapi_calculate_policy_auth_value(
  *
  * The policy will be updated with the function ifapi_calculate_simple_policy()
  *
- * @param[in] policy The policy password.
  * @param[in,out] current_digest The digest list which has to be updated.
  * @param[in] current_hash_alg The hash algorithm used for the policy computation.
  *
@@ -712,12 +708,10 @@ ifapi_calculate_policy_auth_value(
  */
 TSS2_RC
 ifapi_calculate_policy_password(
-    TPMS_POLICYPASSWORD *policy,
     TPML_DIGEST_VALUES *current_digest,
     TPMI_ALG_HASH current_hash_alg)
 {
     TSS2_RC r = TSS2_RC_SUCCESS;
-    (void)policy;
 
     LOG_DEBUG("call");
 
@@ -1326,20 +1320,17 @@ ifapi_calculate_policy(
 
         case POLICYPHYSICALPRESENCE:
             r = ifapi_calculate_policy_physical_presence(
-                    &policy->elements[i].element.PolicyPhysicalPresence,
                     &policy->elements[i].policyDigests, hash_alg);
             return_if_error(r, "Compute policy physical presence");
             break;
 
         case POLICYAUTHVALUE:
-            r = ifapi_calculate_policy_auth_value(&policy->elements[i].element.PolicyAuthValue,
-                                                  &policy->elements[i].policyDigests, hash_alg);
+            r = ifapi_calculate_policy_auth_value(&policy->elements[i].policyDigests, hash_alg);
             return_if_error(r, "Compute policy auth value");
             break;
 
         case POLICYPASSWORD:
-            r = ifapi_calculate_policy_password(&policy->elements[i].element.PolicyPassword,
-                                                &policy->elements[i].policyDigests, hash_alg);
+            r = ifapi_calculate_policy_password(&policy->elements[i].policyDigests, hash_alg);
             return_if_error(r, "Compute policy password");
             break;
 
