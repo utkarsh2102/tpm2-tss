@@ -5,7 +5,8 @@ Maintainer: Mathieu Trudel-Lapierre <cyphermox@ubuntu.com>
 Uploaders: Ying-Chun Liu (PaulLiu) <paulliu@debian.org>,
            Ivan Hu <ivan.hu@ubuntu.com>,
            Mario Limonciello <superm1@gmail.com>
-Build-Depends: autoconf,
+Build-Depends: acl,
+               autoconf,
                autoconf-archive,
                debhelper (>= 11),
                docbook-xsl,
