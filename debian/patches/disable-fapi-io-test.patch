@@ -1,0 +1,21 @@
+Description: fapi-io test is mocked and doesn't work
+ in the build enviornment, that is, neither sbuild or
+ LP builders. However, this works when you run the
+ build locally or run tests like the way upstream does.
+ So since the issue has been raised upstream, disable
+ this here for now.
+Author: Utkarsh Gupta <utkarsh.gupta@canonical.com>
+Origin: vendor
+Bug: https://github.com/tpm2-software/tpm2-tss/issues/2113
+Last-Update: 2021-07-08
+
+--- a/Makefile-test.am
++++ b/Makefile-test.am
+@@ -132,7 +132,6 @@
+ TESTS_UNIT += \
+     test/unit/fapi-json \
+     test/unit/fapi-helpers \
+-    test/unit/fapi-io \
+     test/unit/fapi-profiles \
+     test/unit/fapi-config \
+     test/unit/fapi-get-intl-cert
