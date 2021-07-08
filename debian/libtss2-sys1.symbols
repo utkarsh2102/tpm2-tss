@@ -1,4 +1,7 @@
 libtss2-sys.so.1 libtss2-sys1 #MINVER#
+ Tss2_Sys_ACT_SetTimeout@Base 3.1.0
+ Tss2_Sys_ACT_SetTimeout_Complete@Base 3.1.0
+ Tss2_Sys_ACT_SetTimeout_Prepare@Base 3.1.0
  Tss2_Sys_AC_GetCapability@Base 3.0.1
  Tss2_Sys_AC_GetCapability_Complete@Base 3.0.1
  Tss2_Sys_AC_GetCapability_Prepare@Base 3.0.1
@@ -12,6 +15,9 @@ libtss2-sys.so.1 libtss2-sys1 #MINVER#
  Tss2_Sys_CertifyCreation@Base 3.0.1
  Tss2_Sys_CertifyCreation_Complete@Base 3.0.1
  Tss2_Sys_CertifyCreation_Prepare@Base 3.0.1
+ Tss2_Sys_CertifyX509@Base 3.1.0
+ Tss2_Sys_CertifyX509_Complete@Base 3.1.0
+ Tss2_Sys_CertifyX509_Prepare@Base 3.1.0
  Tss2_Sys_Certify_Complete@Base 3.0.1
  Tss2_Sys_Certify_Prepare@Base 3.0.1
  Tss2_Sys_ChangeEPS@Base 3.0.1

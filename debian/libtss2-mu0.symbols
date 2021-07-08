@@ -95,6 +95,8 @@ libtss2-mu.so.0 libtss2-mu0 #MINVER#
  Tss2_MU_TPMA_STARTUP_CLEAR_Unmarshal@Base 3.0.1
  Tss2_MU_TPMI_ALG_HASH_Marshal@Base 3.0.1
  Tss2_MU_TPMI_ALG_HASH_Unmarshal@Base 3.0.1
+ Tss2_MU_TPML_ACT_DATA_Marshal@Base 3.1.0
+ Tss2_MU_TPML_ACT_DATA_Unmarshal@Base 3.1.0
  Tss2_MU_TPML_AC_CAPABILITIES_Marshal@Base 3.0.1
  Tss2_MU_TPML_AC_CAPABILITIES_Unmarshal@Base 3.0.1
  Tss2_MU_TPML_ALG_Marshal@Base 3.0.1
@@ -119,8 +121,12 @@ libtss2-mu.so.0 libtss2-mu0 #MINVER#
  Tss2_MU_TPML_PCR_SELECTION_Unmarshal@Base 3.0.1
  Tss2_MU_TPML_TAGGED_PCR_PROPERTY_Marshal@Base 3.0.1
  Tss2_MU_TPML_TAGGED_PCR_PROPERTY_Unmarshal@Base 3.0.1
+ Tss2_MU_TPML_TAGGED_POLICY_Marshal@Base 3.1.0
+ Tss2_MU_TPML_TAGGED_POLICY_Unmarshal@Base 3.1.0
  Tss2_MU_TPML_TAGGED_TPM_PROPERTY_Marshal@Base 3.0.1
  Tss2_MU_TPML_TAGGED_TPM_PROPERTY_Unmarshal@Base 3.0.1
+ Tss2_MU_TPMS_ACT_DATA_Marshal@Base 3.1.0
+ Tss2_MU_TPMS_ACT_DATA_Unmarshal@Base 3.1.0
  Tss2_MU_TPMS_AC_OUTPUT_Marshal@Base 3.0.1
  Tss2_MU_TPMS_AC_OUTPUT_Unmarshal@Base 3.0.1
  Tss2_MU_TPMS_ALGORITHM_DESCRIPTION_Marshal@Base 3.0.1
@@ -163,6 +169,8 @@ libtss2-mu.so.0 libtss2-mu0 #MINVER#
  Tss2_MU_TPMS_KEYEDHASH_PARMS_Unmarshal@Base 3.0.1
  Tss2_MU_TPMS_NV_CERTIFY_INFO_Marshal@Base 3.0.1
  Tss2_MU_TPMS_NV_CERTIFY_INFO_Unmarshal@Base 3.0.1
+ Tss2_MU_TPMS_NV_DIGEST_CERTIFY_INFO_Marshal@Base 3.1.0
+ Tss2_MU_TPMS_NV_DIGEST_CERTIFY_INFO_Unmarshal@Base 3.1.0
  Tss2_MU_TPMS_NV_PIN_COUNTER_PARAMETERS_Marshal@Base 3.0.1
  Tss2_MU_TPMS_NV_PIN_COUNTER_PARAMETERS_Unmarshal@Base 3.0.1
  Tss2_MU_TPMS_NV_PUBLIC_Marshal@Base 3.0.1

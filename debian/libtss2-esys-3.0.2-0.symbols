@@ -1,4 +1,7 @@
 libtss2-esys.so.0 libtss2-esys-3.0.2-0 #MINVER#
+ Esys_ACT_SetTimeout@Base 3.1.0
+ Esys_ACT_SetTimeout_Async@Base 3.1.0
+ Esys_ACT_SetTimeout_Finish@Base 3.1.0
  Esys_ActivateCredential@Base 2.3.1
  Esys_ActivateCredential_Async@Base 2.3.1
  Esys_ActivateCredential_Finish@Base 2.3.1
@@ -6,6 +9,9 @@ libtss2-esys.so.0 libtss2-esys-3.0.2-0 #MINVER#
  Esys_CertifyCreation@Base 2.3.1
  Esys_CertifyCreation_Async@Base 2.3.1
  Esys_CertifyCreation_Finish@Base 2.3.1
+ Esys_CertifyX509@Base 3.1.0
+ Esys_CertifyX509_Async@Base 3.1.0
+ Esys_CertifyX509_Finish@Base 3.1.0
  Esys_Certify_Async@Base 2.3.1
  Esys_Certify_Finish@Base 2.3.1
  Esys_ChangeEPS@Base 2.3.1
