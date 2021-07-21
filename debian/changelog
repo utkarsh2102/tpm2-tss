@@ -1,3 +1,19 @@
+tpm2-tss (3.1.0-0ubuntu0.18.04.1) bionic; urgency=medium
+
+  * New upstream version 3.1.0.
+  * d/control: Add acl to BD, needed by setfacl.
+  * d/*.symbols: Update symbols wrt new version.
+  * d/p/disable-fapi-io-test.patch: Add patch to disable
+    fapi-io test as it fails in the build environment.
+  * d/p/fix-bad-typecasting.patch: Add patch to fix bad
+    type-casting and thereby fix the fapi-get-intl-cert
+    test on s390x arch.
+  * d/p/fix-tcti-pcap-test-endianness.patch: Add patch to
+    enable tcti-pcap tests on big endian platforms, which
+    thereby fixes the tcti-pcap failure on s390x arch.
+
+ -- Utkarsh Gupta <utkarsh.gupta@canonical.com>  Wed, 21 Jul 2021 16:40:14 +0530
+
 tpm2-tss (3.0.3-2) unstable; urgency=low
 
   * Add dynamic loaded dependencies (Closes: #980787)
