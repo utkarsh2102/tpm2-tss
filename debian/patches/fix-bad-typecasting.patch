@@ -1,0 +1,67 @@
+From fa57dd7b1174bf21c12d8d37535404702044f0a3 Mon Sep 17 00:00:00 2001
+From: Andreas Fuchs <andreas.fuchs@sit.fraunhofer.de>
+Date: Fri, 16 Jul 2021 15:35:23 +0200
+Subject: [PATCH] FAPI: fix bug of bad type casting
+
+Signed-off-by: Andreas Fuchs <andreas.fuchs@sit.fraunhofer.de>
+---
+ src/tss2-fapi/ifapi_get_intl_cert.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+From 14dd1eeb62eda6ae12c0f7e5561cd07b44a35c48 Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen.repp@sit.fraunhofer.de>
+Date: Wed, 14 Jul 2021 17:08:54 +0200
+Subject: [PATCH] FAPI: Improve error messages for decoding base64 data.
+
+Intel certificates are decoded from a base64 string. The base64 decode function
+returns NULL in error cases without error messages. Some error messages were added.
+Addresses #2113 (check_get_intl_cert_ok).
+
+Signed-off-by: Juergen Repp <juergen.repp@sit.fraunhofer.de>
+---
+ src/tss2-fapi/ifapi_get_intl_cert.c | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+--- a/src/tss2-fapi/ifapi_get_intl_cert.c
++++ b/src/tss2-fapi/ifapi_get_intl_cert.c
+@@ -194,7 +194,8 @@
+ static char *
+ base64_decode(unsigned char* buffer, size_t len, size_t *new_len)
+ {
+-    size_t i, unescape_len = 0, r;
++    size_t i, r;
++    int unescape_len = 0;
+     char *binary_data = NULL, *unescaped_string = NULL;
+ 
+     LOG_INFO("Decoding the base64 encoded cert into binary form");
+@@ -217,20 +218,28 @@
+     if (curl) {
+         /* Convert URL encoded string to a "plain string" */
+         char *output = curl_easy_unescape(curl, (char *)buffer,
+-                                          len, (int *)&unescape_len);
++                                          len, &unescape_len);
+         if (output) {
+             unescaped_string = strdup(output);
+             curl_free(output);
++        } else {
++            LOG_ERROR("curl_easy_unescape failed.");
+         }
++    } else {
++        LOG_ERROR("curl_easy_init failed.");
++        return NULL;
+     }
+     curl_easy_cleanup(curl);
+     curl_global_cleanup();
+-    if (unescaped_string == NULL)
++    if (unescaped_string == NULL) {
++        LOG_ERROR("Computation of unescaped string failed.");
+         return NULL;
++    }
+ 
+     binary_data = calloc(1, unescape_len);
+     if (binary_data == NULL) {
+         free (unescaped_string);
++        LOG_ERROR("Allocation of data for certificate failed.");
+         return NULL;
+     }
+ 
